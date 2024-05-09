@@ -62,7 +62,7 @@ fn parse_string(input: &str) -> Res<&str, Node> {
         ),
     ))(input)?;
 
-    Ok((input, Node::String(string.to_string())))
+    Ok((input, Node::Terminal(string.to_string())))
 }
 
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
@@ -88,7 +88,7 @@ fn parse_terminal(input: &str) -> Res<&str, Node> {
         terminated(identifier, complete::multispace0),
     )(input)?;
 
-    Ok((input, Node::Terminal(symbol.to_string())))
+    Ok((input, Node::Nonterminal(symbol.to_string())))
 }
 
 fn parse_multiple(input: &str) -> Res<&str, Node> {
@@ -115,22 +115,20 @@ fn parse_node(input: &str) -> Res<&str, Node> {
 
     let optional_regex_ext: Res<&str, RegexExtKind> = parse_regex_ext(input);
 
-    match optional_regex_ext {
-        Ok((s, regex_ext_kind)) => {
-            input = s;
-            left_node = Node::RegexExt(Box::new(left_node), regex_ext_kind);
-        }
-        Err(_) => {}
+    if let Ok((s, regex_ext_kind)) = optional_regex_ext {
+        input = s;
+        left_node = Node::RegexExt(Box::new(left_node), regex_ext_kind);
     }
 
     let optional_symbol: Res<&str, (SymbolKind, Node)> = parse_symbol(input);
 
-    match optional_symbol {
-        Ok((input, (symbol, right_node))) => Ok((
+    if let Ok((input, (symbol, right_node))) = optional_symbol {
+        Ok((
             input,
             Node::Symbol(Box::new(left_node), symbol, Box::new(right_node)),
-        )),
-        Err(_) => Ok((input, left_node)),
+        ))
+    } else {
+        Ok((input, left_node))
     }
 }
 

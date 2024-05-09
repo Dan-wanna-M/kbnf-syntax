@@ -5,9 +5,9 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub enum Node {
-    String(String),
-    RegexString(String),
     Terminal(String),
+    RegexString(String),
+    Nonterminal(String),
     Multiple(Vec<Node>),
     RegexExt(Box<Node>, RegexExtKind),
     Symbol(Box<Node>, SymbolKind, Box<Node>),
