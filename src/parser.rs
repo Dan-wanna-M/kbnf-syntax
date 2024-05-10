@@ -4,10 +4,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use nom::bytes::complete::escaped;
 use nom::character::complete::{none_of, one_of};
+use nom::combinator::opt;
 use nom::{
     branch::alt,
-    bytes::complete::tag,
     character::complete,
+    bytes::complete::tag,
     combinator::recognize,
     error::{VerboseError, VerboseErrorKind},
     multi::{many0_count, many1},
@@ -16,6 +17,7 @@ use nom::{
 };
 use parse_hyperlinks::take_until_unbalanced;
 
+use crate::node::Excepted;
 use crate::{
     node::{RegexExtKind, SymbolKind},
     Expression, Node,
@@ -48,7 +50,7 @@ fn parse_rhs(input: &str) -> Res<&str, Node> {
     Ok((input, rhs))
 }
 
-fn parse_string(input: &str) -> Res<&str, Node> {
+fn parse_terminal(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             complete::char('\''),
@@ -82,13 +84,63 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
     Ok((input, Node::RegexString(string.to_string())))
 }
 
-fn parse_terminal(input: &str) -> Res<&str, Node> {
+fn parse_nonterminal(input: &str) -> Res<&str, Node> {
     let (input, symbol) = preceded(
         complete::multispace0,
         terminated(identifier, complete::multispace0),
     )(input)?;
 
     Ok((input, Node::Nonterminal(symbol.to_string())))
+}
+
+fn parse_any(input: &str) -> Res<&str, Node> {
+    let (input, _) = delimited(complete::multispace0, tag("any!"), complete::multispace0)(input)?;
+    Ok((input, Node::ANY))
+}
+
+fn parse_except(input: &str) -> Res<&str, Node> {
+    let (input, (excepted, number_str)) = preceded(
+        tag("except!"),
+        delimited(
+            complete::multispace0,
+            delimited(
+                complete::char('('),
+                pair(
+                    delimited(
+                        complete::multispace0,
+                        alt((parse_nonterminal, parse_terminal)),
+                        complete::multispace0,
+                    ),
+                    opt(preceded(
+                        tag(","),
+                        delimited(
+                            complete::multispace0,
+                            complete::digit0,
+                            complete::multispace0,
+                        ),
+                    )),
+                ),
+                complete::char(')'),
+            ),
+            complete::multispace0,
+        ),
+    )(input)?;
+    Ok((
+        input,
+        Node::EXCEPT(
+            Box::new(match excepted {
+                Node::Nonterminal(s) => Excepted::Nonterminal(s),
+                Node::Terminal(s) => Excepted::Terminal(s),
+                _ => Err(Err::Error(VerboseError {
+                    errors: vec![(
+                        input,
+                        VerboseErrorKind::Context("Expected terminal or nonterminal"),
+                    )],
+                }))?,
+            }),
+            number_str.map(|x:&str|x.parse::<usize>().unwrap())
+        ),
+    ))
 }
 
 fn parse_multiple(input: &str) -> Res<&str, Node> {
@@ -107,9 +159,11 @@ fn parse_node(input: &str) -> Res<&str, Node> {
             parse_group,
             parse_optional,
             parse_repeat,
-            parse_string,
-            parse_regex_string,
             parse_terminal,
+            parse_regex_string,
+            parse_except,
+            parse_any,
+            parse_nonterminal,
         )),
     )(input)?;
 
@@ -168,7 +222,7 @@ fn parse_concatenation(input: &str) -> Res<&str, (SymbolKind, Node)> {
 }
 
 fn parse_alternation(input: &str) -> Res<&str, (SymbolKind, Node)> {
-    let (input, node) = preceded(complete::char('|'), parse_node)(input)?;
+    let (input, node) = preceded(tag("|"), parse_node)(input)?;
 
     Ok((input, (SymbolKind::Alternation, node)))
 }
@@ -179,11 +233,10 @@ fn parse_delimited_node(
     closing_bracket: char,
 ) -> Res<&str, &str> {
     let result = delimited(
-        tag(opening_bracket.to_string().as_str()),
+        complete::char(opening_bracket),
         take_until_unbalanced(opening_bracket, closing_bracket),
-        tag(closing_bracket.to_string().as_str()),
+        complete::char(closing_bracket),
     )(input);
-
     match result {
         Ok((input, inner)) => Ok((input, inner)),
         Err(_) => Err(Err::Error(VerboseError {
@@ -198,7 +251,6 @@ fn parse_delimited_node(
 fn parse_group(input: &str) -> Res<&str, Node> {
     let (input, inner) = parse_delimited_node(input, '(', ')')?;
     let (_, node) = preceded(complete::multispace0, parse_multiple)(inner)?;
-
     Ok((input, Node::Group(Box::new(node))))
 }
 
@@ -352,10 +404,37 @@ mod test {
     }
 
     #[test]
-    fn escaped_string() {
+    fn escaped_nonterminal() {
         let source = r#"
              single_quote ::= '\t\b\n\r\f\/\'';
              double_quote ::= "\t\b\n\r\f\/\"";
+        "#;
+        let result = parse_expressions(source).unwrap();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn any_special_nonterminal() {
+        let source = r#"
+             any ::= any!'this is a wildcard';
+        "#;
+        let result = parse_expressions(source).unwrap();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn except_special_nonterminal1() {
+        let source = r#"
+             except ::= except!(    '\n\n'   ,   1);
+        "#;
+        let result = parse_expressions(source).unwrap();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn except_special_nonterminal2() {
+        let source = r#"
+             except ::= except!(    '\n\n');
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)

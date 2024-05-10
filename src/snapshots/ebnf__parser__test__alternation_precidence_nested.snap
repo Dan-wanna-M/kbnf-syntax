@@ -1,5 +1,6 @@
 ---
 source: src/parser.rs
+assertion_line: 378
 expression: result
 ---
 - "\n             filter ::= 'a' | 'b'  'c' | 'd';\n        "
@@ -7,11 +8,10 @@ expression: result
     rhs:
       Multiple:
         - Symbol:
-            - String: a
+            - Terminal: a
             - Alternation
-            - String: b
+            - Terminal: b
         - Symbol:
-            - String: c
+            - Terminal: c
             - Alternation
-            - String: d
-
+            - Terminal: d

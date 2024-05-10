@@ -1,0 +1,11 @@
+---
+source: src/parser.rs
+assertion_line: 442
+expression: result
+---
+- "\n             except ::= except!(    '\\n\\n');\n        "
+- - lhs: except
+    rhs:
+      EXCEPT:
+        - Terminal: "\\n\\n"
+        - ~

@@ -1,0 +1,11 @@
+---
+source: src/parser.rs
+assertion_line: 378
+expression: result
+---
+- "\n             any ::= any!'this is a wildcard';\n        "
+- - lhs: any
+    rhs:
+      Multiple:
+        - ANY
+        - Terminal: this is a wildcard

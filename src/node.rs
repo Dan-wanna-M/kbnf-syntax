@@ -14,7 +14,15 @@ pub enum Node {
     Group(Box<Node>),
     Optional(Box<Node>),
     Repeat(Box<Node>),
-    Unknown,
+    ANY,
+    EXCEPT(Box<Excepted>, Option<usize>)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum Excepted
+{
+    Terminal(String),
+    Nonterminal(String)
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,5 +1,4 @@
 #![cfg_attr(not(test), no_std)]
-#![deny(warnings)]
 
 //! ebnf - A successor bnf parsing library of bnf parsing library, for parsing Extended Backus–Naur form context-free grammars
 //!

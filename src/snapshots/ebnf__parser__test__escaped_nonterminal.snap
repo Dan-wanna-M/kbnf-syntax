@@ -1,12 +1,12 @@
 ---
 source: src/parser.rs
+assertion_line: 369
 expression: result
 ---
 - "\n             single_quote ::= '\\t\\b\\n\\r\\f\\/\\'';\n             double_quote ::= \"\\t\\b\\n\\r\\f\\/\\\"\";\n        "
 - - lhs: single_quote
     rhs:
-      String: "\\t\\b\\n\\r\\f\\/\\'"
+      Terminal: "\\t\\b\\n\\r\\f\\/\\'"
   - lhs: double_quote
     rhs:
-      String: "\\t\\b\\n\\r\\f\\/\\\""
-
+      Terminal: "\\t\\b\\n\\r\\f\\/\\\""

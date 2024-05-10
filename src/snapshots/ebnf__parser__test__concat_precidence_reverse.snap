@@ -1,18 +1,18 @@
 ---
 source: src/parser.rs
+assertion_line: 405
 expression: result
 ---
 - "\n             filter ::= 'a' , 'b' , 'c' | 'd';\n        "
 - - lhs: filter
     rhs:
       Symbol:
-        - String: a
+        - Terminal: a
         - Concatenation
         - Symbol:
-            - String: b
+            - Terminal: b
             - Concatenation
             - Symbol:
-                - String: c
+                - Terminal: c
                 - Alternation
-                - String: d
-
+                - Terminal: d

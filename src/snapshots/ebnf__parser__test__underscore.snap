@@ -1,15 +1,15 @@
 ---
 source: src/parser.rs
+assertion_line: 341
 expression: result
 ---
 - "\n             filter ::= a_b;\n             a_b ::= 'a' | 'b';\n        "
 - - lhs: filter
     rhs:
-      Terminal: a_b
+      Nonterminal: a_b
   - lhs: a_b
     rhs:
       Symbol:
-        - String: a
+        - Terminal: a
         - Alternation
-        - String: b
-
+        - Terminal: b
