@@ -2,13 +2,13 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use nom::bytes::complete::escaped;
+use nom::bytes::complete::{escaped, take_until};
 use nom::character::complete::{none_of, one_of};
 use nom::combinator::opt;
 use nom::{
     branch::alt,
-    character::complete,
     bytes::complete::tag,
+    character::complete,
     combinator::recognize,
     error::{VerboseError, VerboseErrorKind},
     multi::{many0_count, many1},
@@ -32,8 +32,22 @@ fn identifier(input: &str) -> Res<&str, &str> {
     ))(input)
 }
 
+fn remove_comment(input: &str) -> Res<&str, Option<&str>> {
+    let mut remove = delimited(
+        complete::multispace0,
+        opt(delimited(tag("(*"), take_until("*)"), tag("*)"))),
+        complete::multispace0,
+    );
+    let (mut input, _) = remove(input)?;
+    while input.len() >= 2 && &input[..2] == "(*" {
+        (input, _) = remove(input)?;
+    }
+    Ok((input, None))
+}
+
 fn parse_lhs(input: &str) -> Res<&str, &str> {
-    let (input, lhs) = preceded(complete::multispace0, identifier)(input)?;
+    let (input, lhs) = preceded(remove_comment, identifier)(input)?;
+    // panic!("{:?}", input);
     let (input, _) = preceded(complete::multispace0, alt((tag("="), tag("::="))))(input)?;
     Ok((input, lhs))
 }
@@ -43,7 +57,7 @@ fn parse_rhs(input: &str) -> Res<&str, Node> {
         complete::multispace0,
         terminated(
             parse_multiple,
-            preceded(complete::multispace0, complete::char(';')),
+            delimited(complete::multispace0, complete::char(';'), remove_comment),
         ),
     )(input)?;
 
@@ -128,7 +142,7 @@ fn parse_except(input: &str) -> Res<&str, Node> {
     Ok((
         input,
         Node::EXCEPT(
-            Box::new(match excepted {
+            match excepted {
                 Node::Nonterminal(s) => Excepted::Nonterminal(s),
                 Node::Terminal(s) => Excepted::Terminal(s),
                 _ => Err(Err::Error(VerboseError {
@@ -137,8 +151,8 @@ fn parse_except(input: &str) -> Res<&str, Node> {
                         VerboseErrorKind::Context("Expected terminal or nonterminal"),
                     )],
                 }))?,
-            }),
-            number_str.map(|x:&str|x.parse::<usize>().unwrap())
+            },
+            number_str.map(|x: &str| x.parse::<usize>().unwrap()),
         ),
     ))
 }
@@ -258,14 +272,14 @@ fn parse_optional(input: &str) -> Res<&str, Node> {
     let (input, inner) = parse_delimited_node(input, '[', ']')?;
     let (_, node) = preceded(complete::multispace0, parse_multiple)(inner)?;
 
-    Ok((input, Node::Optional(Box::new(node))))
+    Ok((input, Node::RegexExt(Box::new(node), RegexExtKind::Optional)))
 }
 
 fn parse_repeat(input: &str) -> Res<&str, Node> {
     let (input, inner) = parse_delimited_node(input, '{', '}')?;
     let (_, node) = preceded(complete::multispace0, parse_multiple)(inner)?;
 
-    Ok((input, Node::Repeat(Box::new(node))))
+    Ok((input, Node::RegexExt(Box::new(node), RegexExtKind::Repeat0)))
 }
 
 pub(crate) fn parse_expressions(input: &str) -> Res<&str, Vec<Expression>> {
@@ -435,6 +449,18 @@ mod test {
     fn except_special_nonterminal2() {
         let source = r#"
              except ::= except!(    '\n\n');
+        "#;
+        let result = parse_expressions(source).unwrap();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn comment_except() {
+        let source = r#"
+        (*114514*)
+            except ::= except!(    '\n\n');  (*114514*)
+            (*114514*)
+            (*114514*)
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)

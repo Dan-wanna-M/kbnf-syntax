@@ -12,10 +12,39 @@ pub enum Node {
     RegexExt(Box<Node>, RegexExtKind),
     Symbol(Box<Node>, SymbolKind, Box<Node>),
     Group(Box<Node>),
-    Optional(Box<Node>),
-    Repeat(Box<Node>),
     ANY,
-    EXCEPT(Box<Excepted>, Option<usize>)
+    EXCEPT(Excepted, Option<usize>)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) enum NoNestingNode {
+    Unknown,
+    Terminal(String),
+    RegexString(String),
+    Nonterminal(String),
+    Concatenations(Vec<NoNestingNode>),
+    Alternations(Vec<NoNestingNode>),
+    ANY,
+    EXCEPT(Excepted, Option<usize>)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) enum OperatorFlattenedNode {
+    Terminal(String),
+    RegexString(String),
+    Nonterminal(String),
+    ANY,
+    EXCEPT(Excepted, Option<usize>)
+}
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct RHS
+{
+    pub altercations:Vec<Alternation>,
+}
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Alternation
+{
+    pub concatenations:Vec<OperatorFlattenedNode>
 }
 
 #[derive(Debug, Clone, Serialize)]
