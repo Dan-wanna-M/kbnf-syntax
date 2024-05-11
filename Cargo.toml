@@ -15,5 +15,6 @@ nom = "7"
 parse-hyperlinks = "0.23.3"
 serde = { version = "1.0", features = ["derive"] }
 regex = "1"
+string-interner = "0.17.0"
 [dev-dependencies]
 insta = { version = "1.26.0", features = ["yaml"] }

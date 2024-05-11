@@ -39,9 +39,12 @@ extern crate alloc;
 extern crate nom;
 extern crate parse_hyperlinks;
 
+use std::collections::HashSet;
+
 pub use expression::Expression;
 pub use grammar::Grammar;
 pub use node::{Node, RegexExtKind, SymbolKind};
+use nom::error::{ErrorKind, ParseError, VerboseErrorKind};
 
 mod expression;
 mod grammar;
@@ -62,6 +65,61 @@ mod parser;
 ///
 /// # Ok::<(), nom::Err<nom::error::VerboseError<&str>>>(())
 /// ```
-pub fn get_grammar(input: &str) -> Result<Grammar, nom::Err<nom::error::VerboseError<&str>>> {
-    parser::parse_expressions(input).map(|(_, expressions)| Grammar { expressions })
+pub fn get_grammar(input: &str) -> Result<Grammar, nom::Err<nom::error::VerboseError<String>>> {
+    fn check_defined_nonterminals(
+        defined_nonterminals: HashSet<&str>,
+        expressions: &Vec<Expression>,
+    ) -> Result<(), nom::Err<nom::error::VerboseError<String>>> {
+        for expression in expressions.iter() {
+            let mut stack = vec![&expression.rhs];
+            while let Some(node) = stack.pop() {
+                match node {
+                    Node::Terminal(_) => {}
+                    Node::RegexString(_) => {}
+                    Node::Nonterminal(nonterminal) => {
+                        if !defined_nonterminals.contains(nonterminal.as_str()) {
+                            return Err(nom::Err::Failure(nom::error::VerboseError {
+                                errors: vec![(
+                                    format!("Nonterminal '{}' is not defined", nonterminal),
+                                    VerboseErrorKind::Context("Nonterminal"),
+                                )],
+                            }));
+                        }
+                    }
+                    Node::Multiple(nodes) => {
+                        stack.extend(nodes);
+                    }
+                    Node::RegexExt(node, _) => {
+                        stack.push(node);
+                    }
+                    Node::Symbol(lhs, _, rhs) => {
+                        stack.push(lhs);
+                        stack.push(rhs);
+                    }
+                    Node::Group(node) => {
+                        stack.push(node);
+                    }
+                    Node::ANY => {}
+                    Node::EXCEPT(_, _) => {}
+                }
+            }
+        }
+        Ok(())
+    }
+    let (_, expressions) = parser::parse_expressions(input)
+        .map_err(|x| {
+            x.map(|x| nom::error::VerboseError {
+                errors: x
+                    .errors
+                    .into_iter()
+                    .map(|(x, y)| (x.to_string(), y))
+                    .collect(),
+            })
+        })?;
+    let defined_nonterminals = expressions
+        .iter()
+        .map(|expression| expression.lhs.as_str())
+        .collect::<HashSet<&str>>();
+    check_defined_nonterminals(defined_nonterminals, &expressions)?;
+    Ok(Grammar { expressions })
 }
