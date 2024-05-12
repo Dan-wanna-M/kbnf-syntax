@@ -28,7 +28,7 @@ pub enum NodeWithID {
     Group(Box<NodeWithID>),
     ANY,
     EXCEPT(ExceptedWithID, Option<usize>),
-    Unknown
+    Unknown,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ pub(crate) enum NoNestingNode {
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub(crate) enum OperatorFlattenedNode {
+pub enum OperatorFlattenedNode {
     Terminal(SymbolU32),
     RegexString(SymbolU32),
     Nonterminal(SymbolU32),
@@ -52,11 +52,11 @@ pub(crate) enum OperatorFlattenedNode {
     EXCEPT(ExceptedWithID, Option<usize>),
 }
 #[derive(Debug, Clone)]
-pub(crate) struct Rhs {
+pub struct Rhs {
     pub alternations: Vec<Alternation>,
 }
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub(crate) struct Alternation {
+pub struct Alternation {
     pub concatenations: Vec<OperatorFlattenedNode>,
 }
 #[derive(Debug, Clone, Serialize)]

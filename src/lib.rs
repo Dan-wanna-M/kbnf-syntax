@@ -38,18 +38,26 @@
 extern crate alloc;
 extern crate nom;
 extern crate parse_hyperlinks;
+use std::iter::zip;
 
-use std::collections::HashSet;
-
-pub use expression::Expression;
+use expression::{Expression, ExpressionWithID};
 pub use grammar::Grammar;
+use node::{Excepted, ExceptedWithID, NodeWithID};
 pub use node::{Node, RegexExtKind, SymbolKind};
-use nom::error::{ErrorKind, ParseError, VerboseErrorKind};
+use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
 
 mod expression;
 mod grammar;
 mod node;
 mod parser;
+pub mod semantic_error;
+
+#[derive(Debug, Clone)]
+pub struct InternedStrings {
+    pub nonterminals: StringInterner<StringBackend<SymbolU32>>,
+    pub terminals: StringInterner<StringBackend<SymbolU32>>,
+    pub regex_strings: StringInterner<StringBackend<SymbolU32>>,
+}
 
 /// Get and parse EBNF grammar source into [Grammar], returns [Err] when given grammar is invalid.
 ///
@@ -65,61 +73,107 @@ mod parser;
 ///
 /// # Ok::<(), nom::Err<nom::error::VerboseError<&str>>>(())
 /// ```
-pub fn get_grammar(input: &str) -> Result<Grammar, nom::Err<nom::error::VerboseError<String>>> {
-    fn check_defined_nonterminals(
-        defined_nonterminals: HashSet<&str>,
-        expressions: &Vec<Expression>,
-    ) -> Result<(), nom::Err<nom::error::VerboseError<String>>> {
-        for expression in expressions.iter() {
-            let mut stack = vec![&expression.rhs];
-            while let Some(node) = stack.pop() {
-                match node {
-                    Node::Terminal(_) => {}
-                    Node::RegexString(_) => {}
-                    Node::Nonterminal(nonterminal) => {
-                        if !defined_nonterminals.contains(nonterminal.as_str()) {
-                            return Err(nom::Err::Failure(nom::error::VerboseError {
-                                errors: vec![(
-                                    format!("Nonterminal '{}' is not defined", nonterminal),
-                                    VerboseErrorKind::Context("Nonterminal"),
-                                )],
-                            }));
-                        }
-                    }
-                    Node::Multiple(nodes) => {
-                        stack.extend(nodes);
-                    }
-                    Node::RegexExt(node, _) => {
-                        stack.push(node);
-                    }
-                    Node::Symbol(lhs, _, rhs) => {
-                        stack.push(lhs);
-                        stack.push(rhs);
-                    }
-                    Node::Group(node) => {
-                        stack.push(node);
-                    }
-                    Node::ANY => {}
-                    Node::EXCEPT(_, _) => {}
+pub fn get_grammar(input: &str) -> Result<Grammar, nom::Err<nom::error::VerboseError<&str>>> {
+    let (interned_strings, expressions) = intern_strings(parser::parse_expressions(input)?.1);
+    Ok(Grammar {
+        interned_strings,
+        expressions,
+    })
+}
+
+fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<ExpressionWithID>) {
+    let mut nonterminals = StringInterner::<StringBackend<SymbolU32>>::new();
+    let mut terminals = StringInterner::<StringBackend<SymbolU32>>::new();
+    let mut regex_strings = StringInterner::<StringBackend<SymbolU32>>::new();
+    let mut new_expressions = vec![];
+    for expression in expressions {
+        let lhs = nonterminals.get_or_intern(expression.lhs);
+        let mut rhs = NodeWithID::Unknown;
+        let node = expression.rhs;
+        let mut stack = vec![(node, &mut rhs)];
+        while let Some((node, parent)) = stack.pop() {
+            match node {
+                Node::Terminal(terminal) => {
+                    *parent = NodeWithID::Terminal(terminals.get_or_intern(terminal));
                 }
+                Node::RegexString(regex_string) => {
+                    *parent = NodeWithID::RegexString(regex_strings.get_or_intern(regex_string));
+                }
+                Node::Nonterminal(nonterminal) => {
+                    *parent = NodeWithID::Nonterminal(nonterminals.get_or_intern(nonterminal));
+                }
+                Node::Multiple(nodes) => {
+                    let mut buffer = Vec::with_capacity(nodes.len());
+                    buffer.resize(nodes.len(), NodeWithID::Unknown);
+                    *parent = NodeWithID::Multiple(buffer);
+                    match parent {
+                        NodeWithID::Multiple(new_nodes) => {
+                            for (node, new_parent) in zip(nodes.into_iter(), new_nodes.iter_mut()) {
+                                stack.push((node, new_parent));
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                Node::RegexExt(node, e) => {
+                    *parent = NodeWithID::RegexExt(Box::new(NodeWithID::Unknown), e);
+                    match parent {
+                        NodeWithID::RegexExt(new_node, _) => {
+                            stack.push((*node, new_node));
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                Node::Symbol(lhs, symbol, rhs) => {
+                    *parent = NodeWithID::Symbol(
+                        Box::new(NodeWithID::Unknown),
+                        symbol,
+                        Box::new(NodeWithID::Unknown),
+                    );
+                    match parent {
+                        NodeWithID::Symbol(l, _, r) => {
+                            stack.push((*lhs, l));
+                            stack.push((*rhs, r));
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                Node::Group(node) => {
+                    *parent = NodeWithID::Group(Box::new(NodeWithID::Unknown));
+                    match parent {
+                        NodeWithID::Group(new_node) => {
+                            stack.push((*node, new_node));
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                Node::ANY => {
+                    *parent = NodeWithID::ANY;
+                }
+                Node::EXCEPT(excepted, o) => match excepted {
+                    Excepted::Terminal(terminal) => {
+                        *parent = NodeWithID::EXCEPT(
+                            ExceptedWithID::Terminal(terminals.get_or_intern(terminal)),
+                            o,
+                        );
+                    }
+                    Excepted::Nonterminal(nonterminal) => {
+                        *parent = NodeWithID::EXCEPT(
+                            ExceptedWithID::Nonterminal(nonterminals.get_or_intern(nonterminal)),
+                            o,
+                        );
+                    }
+                },
             }
         }
-        Ok(())
+        new_expressions.push((lhs, rhs));
     }
-    let (_, expressions) = parser::parse_expressions(input)
-        .map_err(|x| {
-            x.map(|x| nom::error::VerboseError {
-                errors: x
-                    .errors
-                    .into_iter()
-                    .map(|(x, y)| (x.to_string(), y))
-                    .collect(),
-            })
-        })?;
-    let defined_nonterminals = expressions
-        .iter()
-        .map(|expression| expression.lhs.as_str())
-        .collect::<HashSet<&str>>();
-    check_defined_nonterminals(defined_nonterminals, &expressions)?;
-    Ok(Grammar { expressions })
+    (
+        InternedStrings {
+            nonterminals,
+            terminals,
+            regex_strings,
+        },
+        new_expressions.into_iter().map(|(lhs, rhs)| ExpressionWithID { lhs, rhs }).collect(),
+    )
 }

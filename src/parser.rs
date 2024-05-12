@@ -22,7 +22,6 @@ use crate::{
     node::{RegexExtKind, SymbolKind},
     Expression, Node,
 };
-
 type Res<T, U> = IResult<T, U, VerboseError<T>>;
 
 fn identifier(input: &str) -> Res<&str, &str> {
@@ -94,8 +93,18 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
             complete::char('"'),
         ),
     ))(input)?;
-
-    Ok((input, Node::RegexString(string.to_string())))
+    let node = Node::RegexString(string.to_string());
+    regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
+        .parse(string)
+        .map_err(|x| {
+            nom::Err::Error(VerboseError {
+                errors: vec![(
+                    "Invalid regex string: ",
+                    nom::error::VerboseErrorKind::Context(string),
+                )],
+            })
+        })
+        .map(|_| (input, node))
 }
 
 fn parse_nonterminal(input: &str) -> Res<&str, Node> {
@@ -272,7 +281,10 @@ fn parse_optional(input: &str) -> Res<&str, Node> {
     let (input, inner) = parse_delimited_node(input, '[', ']')?;
     let (_, node) = preceded(complete::multispace0, parse_multiple)(inner)?;
 
-    Ok((input, Node::RegexExt(Box::new(node), RegexExtKind::Optional)))
+    Ok((
+        input,
+        Node::RegexExt(Box::new(node), RegexExtKind::Optional),
+    ))
 }
 
 fn parse_repeat(input: &str) -> Res<&str, Node> {
@@ -452,6 +464,23 @@ mod test {
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)
+    }
+    #[test]
+    #[should_panic]
+    fn empty1() {
+        let source = r#"
+             except ::= ;
+        "#;
+        let result = parse_expressions(source).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn empty2() {
+        let source = r#"
+             except ::= A|;
+        "#;
+        let result = parse_expressions(source).unwrap();
     }
 
     #[test]
