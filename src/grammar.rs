@@ -16,10 +16,7 @@ use string_interner::symbol::SymbolU32;
 
 use crate::{
     expression::ExpressionWithID,
-    node::{
-        Alternation, ExceptedWithID, NoNestingNode, NodeWithID,
-        OperatorFlattenedNode, Rhs,
-    },
+    node::{Alternation, ExceptedWithID, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs},
     semantic_error::SemanticError,
     InternedStrings, RegexExtKind, SymbolKind,
 };
@@ -125,8 +122,14 @@ impl ValidatedGrammar {
             &mut self.interned_strings,
         );
         let expressions = Self::merge_identical_rhs_across_nonterminals(expressions);
+        let expressions = Self::remove_nullable_rules(
+            expressions,
+            &self.interned_strings,
+            &self.id_to_regex,
+            self.start_symbol,
+        );
         let expressions =
-            Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
+            Self::remove_unit_production(expressions, self.start_symbol, &mut HashMap::new());
         SimplifiedGrammar {
             expressions,
             start_symbol: self.start_symbol,
@@ -502,12 +505,6 @@ impl ValidatedGrammar {
             let mut last_nonterminal = nonterminal;
             let mut chain = vec![nonterminal_node];
             loop {
-                if rules.get(&last_nonterminal).is_none() {
-                    panic!(
-                        "The nonterminal {:?} is not defined. Chain: {:?}, rules:{:?}",
-                        last_nonterminal, chain, rules
-                    );
-                }
                 let rhs = rules.get(&last_nonterminal).unwrap();
                 if rhs.alternations.len() != 1 {
                     break;
@@ -534,22 +531,25 @@ impl ValidatedGrammar {
                                     (RegexExtKind::Repeat0, RegexExtKind::Repeat0) => {}
                                     (RegexExtKind::Repeat1, RegexExtKind::Repeat1) => {}
                                     (RegexExtKind::Optional, RegexExtKind::Optional) => {}
-                                    (RegexExtKind::Repeat0, RegexExtKind::Repeat1) => {}
-                                    (RegexExtKind::Repeat1, RegexExtKind::Repeat0) => {
-                                        *special_nonterminals.get_mut(&last_nonterminal).unwrap() =
+                                    (RegexExtKind::Repeat0, RegexExtKind::Repeat1) => {
+                                        *special_nonterminals.get_mut(next_nonterminal).unwrap() =
                                             RegexExtKind::Repeat0;
                                     }
-                                    (RegexExtKind::Repeat0, RegexExtKind::Optional) => {}
+                                    (RegexExtKind::Repeat1, RegexExtKind::Repeat0) => {}
+                                    (RegexExtKind::Repeat0, RegexExtKind::Optional) => {
+                                        *special_nonterminals.get_mut(next_nonterminal).unwrap() =
+                                            RegexExtKind::Repeat0;
+                                    }
                                     (RegexExtKind::Optional, RegexExtKind::Repeat0) => {
-                                        *special_nonterminals.get_mut(&last_nonterminal).unwrap() =
+                                        *special_nonterminals.get_mut(next_nonterminal).unwrap() =
                                             RegexExtKind::Repeat0;
                                     }
                                     (RegexExtKind::Repeat1, RegexExtKind::Optional) => {
-                                        *special_nonterminals.get_mut(&last_nonterminal).unwrap() =
+                                        *special_nonterminals.get_mut(next_nonterminal).unwrap() =
                                             RegexExtKind::Repeat0;
                                     }
                                     (RegexExtKind::Optional, RegexExtKind::Repeat1) => {
-                                        *special_nonterminals.get_mut(&last_nonterminal).unwrap() =
+                                        *special_nonterminals.get_mut(next_nonterminal).unwrap() =
                                             RegexExtKind::Repeat0;
                                     }
                                 };
@@ -561,7 +561,6 @@ impl ValidatedGrammar {
                         if !special_nonterminals.contains_key(&last_nonterminal) {
                             chain.push(node);
                         }
-
                         break;
                     }
                 }
@@ -649,6 +648,7 @@ impl ValidatedGrammar {
                     }
                 }
             }
+            visited.insert(nonterminal);
         }
         rules
             .into_iter()
@@ -695,60 +695,48 @@ impl ValidatedGrammar {
             .into_iter()
             .map(|(lhs, mut rhs)| {
                 if let Some(kind) = special_nonterminals.get(&lhs) {
-                    let node = rhs.alternations.remove(0).concatenations.remove(0);
                     match kind {
-                        RegexExtKind::Optional => (
-                            lhs,
-                            Rhs {
-                                alternations: vec![
-                                    Alternation {
-                                        concatenations: vec![node],
-                                    },
-                                    Alternation {
-                                        concatenations: vec![OperatorFlattenedNode::Terminal(
-                                            interned_strings.terminals.get_or_intern(""),
-                                        )],
-                                    },
-                                ],
-                            },
-                        ),
-                        RegexExtKind::Repeat0 => (
-                            lhs,
-                            Rhs {
-                                alternations: vec![
-                                    Alternation {
-                                        concatenations: vec![OperatorFlattenedNode::Terminal(
-                                            interned_strings.terminals.get_or_intern(""),
-                                        )],
-                                    },
-                                    Alternation {
-                                        concatenations: vec![node.clone()],
-                                    },
-                                    Alternation {
-                                        concatenations: vec![
-                                            OperatorFlattenedNode::Nonterminal(lhs),
-                                            node,
-                                        ],
-                                    },
-                                ],
-                            },
-                        ),
-                        RegexExtKind::Repeat1 => (
-                            lhs,
-                            Rhs {
-                                alternations: vec![
-                                    Alternation {
-                                        concatenations: vec![node.clone()],
-                                    },
-                                    Alternation {
-                                        concatenations: vec![
-                                            OperatorFlattenedNode::Nonterminal(lhs),
-                                            node,
-                                        ],
-                                    },
-                                ],
-                            },
-                        ),
+                        RegexExtKind::Optional => {
+                            rhs.alternations.push(Alternation {
+                                concatenations: vec![OperatorFlattenedNode::Terminal(
+                                    interned_strings.terminals.get_or_intern(""),
+                                )],
+                            });
+                            (lhs, rhs)
+                        }
+                        RegexExtKind::Repeat0 => {
+                            let iter = rhs
+                                .alternations
+                                .iter()
+                                .cloned()
+                                .map(|mut a| {
+                                    a.concatenations
+                                        .insert(0, OperatorFlattenedNode::Nonterminal(lhs));
+                                    a
+                                })
+                                .collect::<Vec<_>>();
+                            rhs.alternations.extend(iter);
+                            rhs.alternations.push(Alternation {
+                                concatenations: vec![OperatorFlattenedNode::Terminal(
+                                    interned_strings.terminals.get_or_intern(""),
+                                )],
+                            });
+                            (lhs, rhs)
+                        }
+                        RegexExtKind::Repeat1 => {
+                            let iter = rhs
+                                .alternations
+                                .iter()
+                                .cloned()
+                                .map(|mut a| {
+                                    a.concatenations
+                                        .insert(0, OperatorFlattenedNode::Nonterminal(lhs));
+                                    a
+                                })
+                                .collect::<Vec<_>>();
+                            rhs.alternations.extend(iter);
+                            (lhs, rhs)
+                        }
                     }
                 } else {
                     (lhs, rhs)
@@ -832,6 +820,7 @@ impl ValidatedGrammar {
         rules: HashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
         id_to_regex: &HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+        start_nonterminal: SymbolU32,
     ) -> HashMap<SymbolU32, Rhs> {
         fn find_nullable_nonterminals(
             rules: &HashMap<SymbolU32, Rhs>,
@@ -899,9 +888,15 @@ impl ValidatedGrammar {
                             stack.push((prefix, iter));
                         }
                     } else if !prefix.is_empty() {
-                        prefix.reverse();
+                        // prefix.reverse();
                         new_alterations.insert(Alternation {
                             concatenations: prefix,
+                        });
+                    } else if start_nonterminal == lhs {
+                        new_alterations.insert(Alternation {
+                            concatenations: vec![OperatorFlattenedNode::Terminal(
+                                interned_strings.terminals.get("").unwrap(),
+                            )],
                         });
                     }
                 }
@@ -1154,8 +1149,9 @@ mod test {
     #[test]
     fn simplify_grammar2() {
         let source = r#"
-            S ::= A? A? A? A? A?;
+            S ::= (A)? (A)? (A)? (A)? (A)? B;
             A ::= 'cd';
+            B ::= A'a';
         "#;
         let result = get_grammar(source)
             .unwrap()
@@ -1170,6 +1166,34 @@ mod test {
         let source = r#"
             S ::= 'a'? 'a'? 'a'? 'a'? 'a'?;
             A ::= 'cd';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar("S", Config::new())
+            .unwrap()
+            .simplify_grammar();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn simplify_grammar4() {
+        let source = r#"
+            S ::= ((A?)*)+;
+            A ::= 'cd'?;
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar("S", Config::new())
+            .unwrap()
+            .simplify_grammar();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn simplify_grammar5() {
+        let source = r#"
+            S ::= 'ab'S? | 'jk'(((A)));
+            A ::= 'cd'|'cd'|A'c'|'Ac';
         "#;
         let result = get_grammar(source)
             .unwrap()
