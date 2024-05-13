@@ -1,0 +1,6 @@
+---
+source: src/grammar.rs
+assertion_line: 1166
+expression: result
+---
+"S_optional_1 ::= 'cd';\nS ::= S_optional_1 S_optional_1 S_optional_1 | S_optional_1 S_optional_1 S_optional_1 S_optional_1 | S_optional_1 S_optional_1 S_optional_1 S_optional_1 S_optional_1 | S_optional_1 S_optional_1 | S_optional_1;\n"

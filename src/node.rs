@@ -16,7 +16,7 @@ pub enum Node {
     ANY,
     EXCEPT(Excepted, Option<usize>),
 }
-
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
 pub enum NodeWithID {
     Terminal(SymbolU32),
@@ -30,7 +30,7 @@ pub enum NodeWithID {
     EXCEPT(ExceptedWithID, Option<usize>),
     Unknown,
 }
-
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
 pub(crate) enum NoNestingNode {
     Unknown,
@@ -42,8 +42,8 @@ pub(crate) enum NoNestingNode {
     ANY,
     EXCEPT(ExceptedWithID, Option<usize>),
 }
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum OperatorFlattenedNode {
     Terminal(SymbolU32),
     RegexString(SymbolU32),
@@ -51,11 +51,11 @@ pub enum OperatorFlattenedNode {
     ANY,
     EXCEPT(ExceptedWithID, Option<usize>),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Rhs {
     pub alternations: Vec<Alternation>,
 }
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Alternation {
     pub concatenations: Vec<OperatorFlattenedNode>,
 }
@@ -64,7 +64,7 @@ pub enum Excepted {
     Terminal(String),
     Nonterminal(String),
 }
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum ExceptedWithID {
     Terminal(SymbolU32),
     Nonterminal(SymbolU32),

@@ -96,11 +96,13 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let node = Node::RegexString(string.to_string());
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(string)
-        .map_err(|x| {
+        .map_err(|_: regex_syntax::ast::Error| {
             nom::Err::Error(VerboseError {
                 errors: vec![(
                     "Invalid regex string: ",
-                    nom::error::VerboseErrorKind::Context(string),
+                    nom::error::VerboseErrorKind::Context(string.to_string().leak()), 
+                    // This is not the optimum choice but is the easiest way.
+                    // And the memory leak will not be a problem unless someone has unusually big regex strings and/or repeatedly tries to parse a faulty grammar.
                 )],
             })
         })
@@ -471,7 +473,7 @@ mod test {
         let source = r#"
              except ::= ;
         "#;
-        let result = parse_expressions(source).unwrap();
+        let _ = parse_expressions(source).unwrap();
     }
 
     #[test]
@@ -480,7 +482,7 @@ mod test {
         let source = r#"
              except ::= A|;
         "#;
-        let result = parse_expressions(source).unwrap();
+        let _ = parse_expressions(source).unwrap();
     }
 
     #[test]

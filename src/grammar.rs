@@ -6,15 +6,22 @@ use std::{
 
 use alloc::vec::Vec;
 
-use nom::Err;
+use regex_automata::dfa::{
+    self,
+    dense::{Builder, Config},
+    Automaton,
+};
 use serde::Serialize;
-use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
+use string_interner::symbol::SymbolU32;
 
 use crate::{
-    expression::{Expression, ExpressionWithID}, node::{
-        Alternation, Excepted, ExceptedWithID, NoNestingNode, NodeWithID, OperatorFlattenedNode,
-        Rhs,
-    }, semantic_error::SemanticError, InternedStrings, Node, RegexExtKind, SymbolKind
+    expression::ExpressionWithID,
+    node::{
+        Alternation, ExceptedWithID, NoNestingNode, NodeWithID,
+        OperatorFlattenedNode, Rhs,
+    },
+    semantic_error::SemanticError,
+    InternedStrings, RegexExtKind, SymbolKind,
 };
 
 #[derive(Debug, Clone)]
@@ -28,6 +35,7 @@ pub struct ValidatedGrammar {
     pub expressions: Vec<ExpressionWithID>,
     pub interned_strings: InternedStrings,
     pub start_symbol: SymbolU32,
+    pub id_to_regex: HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,30 +108,31 @@ impl Serialize for SimplifiedGrammar {
 }
 
 impl ValidatedGrammar {
-    pub fn simplify_grammar(mut self, start_symbol: String) -> SimplifiedGrammar {
-        let start_symbol = self.interned_strings.nonterminals.get_or_intern(start_symbol);
-        let expressions = Self::remove_unused_rules(self.expressions, start_symbol);
+    pub fn simplify_grammar(mut self) -> SimplifiedGrammar {
+        let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
         let (expressions, mut special_nonterminals) =
             Self::flatten_nested_rules_with_nonterminals(expressions, &mut self.interned_strings);
         let expressions = Self::flatten_operators(expressions);
         let expressions = Self::group_same_lhs_together(expressions);
-        let expressions = Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
+        let expressions =
+            Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
         let expressions = Self::deduplicate_alternations(expressions);
         let expressions =
-            Self::remove_unit_production(expressions, start_symbol, &mut special_nonterminals);
+            Self::remove_unit_production(expressions, self.start_symbol, &mut special_nonterminals);
         let expressions = Self::expand_special_nonterminals(
             expressions,
             special_nonterminals,
             &mut self.interned_strings,
         );
+        let expressions = Self::merge_identical_rhs_across_nonterminals(expressions);
+        let expressions =
+            Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
         SimplifiedGrammar {
             expressions,
-            start_symbol,
+            start_symbol: self.start_symbol,
             interned_strings: self.interned_strings,
         }
     }
-
-    
 
     fn remove_unused_rules(
         expressions: Vec<ExpressionWithID>,
@@ -131,7 +140,7 @@ impl ValidatedGrammar {
     ) -> Vec<ExpressionWithID> {
         let mut used_nonterminals = HashSet::new();
         used_nonterminals.insert(start_symbol);
-        for ExpressionWithID { lhs, rhs:node } in &expressions {
+        for ExpressionWithID { lhs, rhs: node } in &expressions {
             if *lhs == start_symbol {
                 let mut stack = vec![node];
                 while let Some(node) = stack.pop() {
@@ -213,7 +222,10 @@ impl ValidatedGrammar {
             if let Some(kind) = kind {
                 special_nonterminals.insert(name, kind);
             }
-            rules.push(ExpressionWithID { lhs, rhs: node });
+            rules.push(ExpressionWithID {
+                lhs: name,
+                rhs: node,
+            });
         };
         fn get_slice(nodes: &[NodeWithID]) -> Vec<NoNestingNode> {
             let mut buffer = Vec::with_capacity(nodes.len());
@@ -484,13 +496,18 @@ impl ValidatedGrammar {
             rules: &'a HashMap<SymbolU32, Rhs>,
             nonterminal_node: &'a OperatorFlattenedNode,
             nonterminal: SymbolU32,
-            visited: &mut HashSet<SymbolU32>,
+            visited: &HashSet<SymbolU32>,
             special_nonterminals: &mut HashMap<SymbolU32, RegexExtKind>,
         ) -> Vec<&'a OperatorFlattenedNode> {
             let mut last_nonterminal = nonterminal;
             let mut chain = vec![nonterminal_node];
-            visited.insert(nonterminal);
             loop {
+                if rules.get(&last_nonterminal).is_none() {
+                    panic!(
+                        "The nonterminal {:?} is not defined. Chain: {:?}, rules:{:?}",
+                        last_nonterminal, chain, rules
+                    );
+                }
                 let rhs = rules.get(&last_nonterminal).unwrap();
                 if rhs.alternations.len() != 1 {
                     break;
@@ -541,7 +558,10 @@ impl ValidatedGrammar {
                         last_nonterminal = *next_nonterminal;
                     }
                     _ => {
-                        chain.push(node);
+                        if !special_nonterminals.contains_key(&last_nonterminal) {
+                            chain.push(node);
+                        }
+
                         break;
                     }
                 }
@@ -564,9 +584,9 @@ impl ValidatedGrammar {
                 visited,
                 special_nonterminals,
             );
-            visited.extend(chain.iter().filter_map(|node| match node {
-                OperatorFlattenedNode::Nonterminal(nonterminal) => Some(*nonterminal),
-                _ => None,
+            visited.extend(chain.iter().take(chain.len() - 1).map(|node| match node {
+                OperatorFlattenedNode::Nonterminal(nonterminal) => *nonterminal,
+                _ => unreachable!(),
             }));
             if chain.len() > 1 {
                 if let OperatorFlattenedNode::Nonterminal(nonterminal) = chain.last().unwrap() {
@@ -619,7 +639,7 @@ impl ValidatedGrammar {
                         }
                         update_nonterminal(
                             &rules,
-                            c,
+                            &OperatorFlattenedNode::Nonterminal(nonterminal),
                             nonterminal,
                             &mut visited,
                             &mut chains,
@@ -737,61 +757,194 @@ impl ValidatedGrammar {
             .collect()
     }
 
-    fn remove_nullable_rules(rules: HashMap<SymbolU32, Rhs>) {
-        fn find_nullable_nonterminals(
-            rules: &HashMap<SymbolU32, Rhs>,
-            start_symbol: SymbolU32,
-        ) -> HashSet<SymbolU32> {
-            let mut nullable_nonterminals = HashMap::new();
-            let mut stack = vec![(start_symbol, None)];
-            while let Some((nonterminal, parent)) = stack.pop() {
-                nullable_nonterminals.insert(nonterminal, true);
-                let rhs = rules.get(&nonterminal).unwrap();
-                for a in rhs.alternations.iter() {
-                    for c in a.concatenations.iter() {
-                        if let OperatorFlattenedNode::Nonterminal(next) = c {
-                            stack.push((*next, Some(nonterminal)));
-                        } else if let OperatorFlattenedNode::{
-                            nullable_nonterminals.insert(nonterminal, false);
-                            if let Some(parent) = parent {
-                                nullable_nonterminals.insert(parent, false);
-                            }
-                        }
+    fn merge_identical_rhs_across_nonterminals(
+        rules: HashMap<SymbolU32, Rhs>,
+    ) -> HashMap<SymbolU32, Rhs> {
+        let mut rules: Vec<(SymbolU32, Rhs)> = rules.into_iter().collect();
+        rules.sort_by_key(|(lhs, _)| *lhs);
+        loop {
+            // In worst case it has O(n^2logn) complexity. I am curious whether there exists a better solution.
+            let mut updated = false;
+            let mut merged_rhs_to_lhses = HashMap::new();
+            let mut lhs_to_lhs = HashMap::new();
+            for (lhs, mut rhs) in rules {
+                rhs.alternations.sort();
+                match merged_rhs_to_lhses.entry(rhs) {
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        lhs_to_lhs.insert(lhs, *entry.get());
+                        updated = true;
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(lhs);
                     }
                 }
             }
-            nullable_nonterminals
+            rules = merged_rhs_to_lhses
                 .into_iter()
-                .filter_map(|(k, v)| if v { Some(k) } else { None })
-                .collect()
+                .map(|(rhs, lhs)| {
+                    (
+                        lhs,
+                        Rhs {
+                            alternations: rhs
+                                .alternations
+                                .into_iter()
+                                .map(|alternation| Alternation {
+                                    concatenations: alternation
+                                        .concatenations
+                                        .into_iter()
+                                        .map(|concatenation| match concatenation {
+                                            OperatorFlattenedNode::Nonterminal(nonterminal) => {
+                                                OperatorFlattenedNode::Nonterminal(
+                                                    *lhs_to_lhs
+                                                        .get(&nonterminal)
+                                                        .unwrap_or(&nonterminal),
+                                                )
+                                            }
+                                            OperatorFlattenedNode::EXCEPT(
+                                                ExceptedWithID::Nonterminal(nonterminal),
+                                                x,
+                                            ) => OperatorFlattenedNode::EXCEPT(
+                                                ExceptedWithID::Nonterminal(
+                                                    *lhs_to_lhs
+                                                        .get(&nonterminal)
+                                                        .unwrap_or(&nonterminal),
+                                                ),
+                                                x,
+                                            ),
+                                            _ => concatenation,
+                                        })
+                                        .collect(),
+                                })
+                                .collect(),
+                        },
+                    )
+                })
+                .collect();
+            rules.sort_by_key(|(lhs, _)| *lhs);
+            if !updated {
+                break;
+            }
         }
+        rules.into_iter().collect()
+    }
+
+    fn remove_nullable_rules(
+        rules: HashMap<SymbolU32, Rhs>,
+        interned_strings: &InternedStrings,
+        id_to_regex: &HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+    ) -> HashMap<SymbolU32, Rhs> {
+        fn find_nullable_nonterminals(
+            rules: &HashMap<SymbolU32, Rhs>,
+            interned_strings: &InternedStrings,
+            id_to_regex: &HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+        ) -> HashSet<OperatorFlattenedNode> {
+            let mut nullable_symbols: HashSet<OperatorFlattenedNode> = HashSet::new();
+            loop {
+                // In worst case it has O(n^2) complexity. I am curious whether there exists a better solution.
+                let mut updated = false;
+                for (lhs, rhs) in rules {
+                    if nullable_symbols.contains(&OperatorFlattenedNode::Nonterminal(*lhs)) {
+                        continue;
+                    }
+                    if rhs.alternations.iter().any(|a| {
+                        a.concatenations.iter().all(|c| match c {
+                            OperatorFlattenedNode::Terminal(value) => {
+                                if "" == interned_strings.terminals.resolve(*value).unwrap() {
+                                    nullable_symbols.insert(c.clone());
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            OperatorFlattenedNode::RegexString(value) => {
+                                if id_to_regex.get(value).unwrap().has_empty() {
+                                    nullable_symbols.insert(c.clone());
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            _ => nullable_symbols.contains(c),
+                        })
+                    }) {
+                        nullable_symbols.insert(OperatorFlattenedNode::Nonterminal(*lhs));
+                        updated = true;
+                    }
+                }
+                if !updated {
+                    break;
+                }
+            }
+            nullable_symbols
+        }
+        let nullable_nodes = find_nullable_nonterminals(&rules, interned_strings, id_to_regex);
+        let mut new_rules = HashMap::new();
+        for (lhs, Rhs { alternations }) in rules {
+            let mut new_alterations = HashSet::new();
+            for Alternation { concatenations } in alternations {
+                let mut stack = vec![(vec![], concatenations.into_iter())];
+                while let Some((mut prefix, mut iter)) = stack.pop() {
+                    if let Some(node) = iter.next() {
+                        if nullable_nodes.contains(&node) {
+                            if matches!(node, OperatorFlattenedNode::Terminal(_)) {
+                                stack.push((prefix, iter));
+                            } else {
+                                let without = prefix.clone();
+                                prefix.push(node);
+                                stack.push((prefix, iter.clone()));
+                                stack.push((without, iter));
+                            }
+                        } else {
+                            prefix.push(node);
+                            stack.push((prefix, iter));
+                        }
+                    } else if !prefix.is_empty() {
+                        prefix.reverse();
+                        new_alterations.insert(Alternation {
+                            concatenations: prefix,
+                        });
+                    }
+                }
+            }
+            new_rules.insert(
+                lhs,
+                Rhs {
+                    alternations: new_alterations.into_iter().collect(),
+                },
+            );
+        }
+        new_rules
     }
 }
 
-
 impl Grammar {
-
-    pub fn validate_grammar(self, start_symbol: &str)-> Result<ValidatedGrammar, SemanticError>
-    {
-        match self.check_undefined_nonterminal(start_symbol) {
-            Ok(_) => {match self.check_invalid_excepted_nonterminal() {
-                Ok(_) => Ok(ValidatedGrammar {
-                    expressions: self.expressions,
-                    interned_strings: self.interned_strings,
-                    start_symbol: self.interned_strings.nonterminals.get(start_symbol).unwrap(),
-                }),
-                Err(e) => Err(e),
-            }},
-            Err(e) => Err(e),
-        }
+    pub fn validate_grammar(
+        self,
+        start_symbol: &str,
+        regex_config: Config,
+    ) -> Result<ValidatedGrammar, Box<SemanticError>> {
+        let start = self
+            .interned_strings
+            .nonterminals
+            .get(start_symbol)
+            .unwrap();
+        self.check_undefined_nonterminal(start_symbol)?;
+        self.check_invalid_excepted_nonterminal()?;
+        let regexes = self.compile_regex_string(regex_config)?;
+        Ok(ValidatedGrammar {
+            expressions: self.expressions,
+            start_symbol: start,
+            interned_strings: self.interned_strings,
+            id_to_regex: regexes,
+        })
     }
 
-    fn check_undefined_nonterminal(&self, start_symbol: &str)-> Result<(), SemanticError> {
+    fn check_undefined_nonterminal(&self, start_symbol: &str) -> Result<(), Box<SemanticError>> {
         fn check_defined_nonterminals(
-            defined_nonterminals: HashSet<SymbolU32>,
-            expressions: Vec<ExpressionWithID>,
-            interned_strings: InternedStrings
-        ) -> Result<(), SemanticError> {
+            defined_nonterminals: &HashSet<SymbolU32>,
+            expressions: &[ExpressionWithID],
+            interned_strings: &InternedStrings,
+        ) -> Result<(), Box<SemanticError>> {
             for expression in expressions.iter() {
                 let mut stack = vec![&expression.rhs];
                 while let Some(node) = stack.pop() {
@@ -800,7 +953,13 @@ impl Grammar {
                         NodeWithID::RegexString(_) => {}
                         NodeWithID::Nonterminal(nonterminal) => {
                             if !defined_nonterminals.contains(nonterminal) {
-                                return Err(SemanticError::UndefinedNonterminal(interned_strings.nonterminals.resolve(*nonterminal).unwrap().to_string()));
+                                return Err(Box::new(SemanticError::UndefinedNonterminal(
+                                    interned_strings
+                                        .nonterminals
+                                        .resolve(*nonterminal)
+                                        .unwrap()
+                                        .to_string(),
+                                )));
                             }
                         }
                         NodeWithID::Multiple(nodes) => {
@@ -817,22 +976,43 @@ impl Grammar {
                             stack.push(node);
                         }
                         NodeWithID::ANY => {}
-                        NodeWithID::EXCEPT(_, _) => {}
+                        NodeWithID::EXCEPT(excepted, _) => match excepted {
+                            ExceptedWithID::Terminal(_) => {}
+                            ExceptedWithID::Nonterminal(nonterminal) => {
+                                if !defined_nonterminals.contains(nonterminal) {
+                                    return Err(Box::new(SemanticError::UndefinedNonterminal(
+                                        interned_strings
+                                            .nonterminals
+                                            .resolve(*nonterminal)
+                                            .unwrap()
+                                            .to_string(),
+                                    )));
+                                }
+                            }
+                        },
                         NodeWithID::Unknown => unreachable!(),
                     }
                 }
             }
             Ok(())
         }
-        let defined_nonterminals = self.expressions
+        let defined_nonterminals = self
+            .expressions
             .iter()
             .map(|expression| expression.lhs)
             .collect::<HashSet<SymbolU32>>();
-        self.interned_strings.nonterminals.get(start_symbol).ok_or_else(||SemanticError::UndefinedNonterminal(start_symbol.to_string()))?;
-        check_defined_nonterminals(defined_nonterminals, self.expressions,self.interned_strings)
+        self.interned_strings
+            .nonterminals
+            .get(start_symbol)
+            .ok_or_else(|| SemanticError::UndefinedNonterminal(start_symbol.to_string()))?;
+        check_defined_nonterminals(
+            &defined_nonterminals,
+            &self.expressions,
+            &self.interned_strings,
+        )
     }
 
-    fn check_invalid_excepted_nonterminal(&self) -> Result<(), SemanticError> {
+    fn check_invalid_excepted_nonterminal(&self) -> Result<(), Box<SemanticError>> {
         for expression in self.expressions.iter() {
             let mut stack = vec![&expression.rhs];
             while let Some(node) = stack.pop() {
@@ -857,9 +1037,10 @@ impl Grammar {
                     NodeWithID::EXCEPT(excepted, _) => match excepted {
                         ExceptedWithID::Terminal(_) => {}
                         ExceptedWithID::Nonterminal(nonterminal) => {
-                            for expression in self.expressions.iter().filter(|expression|{
-                                expression.lhs == *nonterminal
-                            })
+                            for expression in self
+                                .expressions
+                                .iter()
+                                .filter(|expression| expression.lhs == *nonterminal)
                             {
                                 let mut stack = vec![&expression.rhs];
                                 while let Some(node) = stack.pop() {
@@ -873,11 +1054,21 @@ impl Grammar {
                                             stack.push(rhs);
                                         }
                                         NodeWithID::Unknown => unreachable!(),
-                                        _ => return Err(SemanticError::InvalidExceptednonterminal(self.interned_strings.nonterminals.resolve(*nonterminal).unwrap().to_string()))
+                                        _ => {
+                                            return Err(Box::new(
+                                                SemanticError::InvalidExceptednonterminal(
+                                                    self.interned_strings
+                                                        .nonterminals
+                                                        .resolve(*nonterminal)
+                                                        .unwrap()
+                                                        .to_string(),
+                                                ),
+                                            ));
+                                        }
                                     }
                                 }
                             }
-                            }
+                        }
                     },
                     NodeWithID::Unknown => unreachable!(),
                 }
@@ -885,11 +1076,30 @@ impl Grammar {
         }
         Ok(())
     }
+
+    fn compile_regex_string(
+        &self,
+        config: Config,
+    ) -> Result<
+        HashMap<SymbolU32, regex_automata::dfa::dense::DFA<std::vec::Vec<u32>>>,
+        Box<SemanticError>,
+    > {
+        let mut regexes = HashMap::new();
+        for (id, regex_string) in &self.interned_strings.regex_strings {
+            let regex = Builder::new()
+                .configure(config.clone())
+                .build(regex_string)
+                .map_err(SemanticError::RegexBuildError)?;
+            regexes.insert(id, regex);
+        }
+        Ok(regexes)
+    }
 }
 
 #[cfg(test)]
 mod test {
     use insta::assert_yaml_snapshot;
+    use regex_automata::dfa::dense::Config;
 
     use crate::get_grammar;
     #[test]
@@ -898,7 +1108,32 @@ mod test {
         let source = r#"
              except ::= A;
         "#;
-        let _ = get_grammar(source).unwrap();
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar("except", Config::new())
+            .unwrap();
+    }
+    #[test]
+    #[should_panic]
+    fn undefined_nonterminal2() {
+        let source = r#"
+             except ::= except!(A);
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar("except", Config::new())
+            .unwrap();
+    }
+    #[test]
+    #[should_panic]
+    fn undefined_nonterminal3() {
+        let source = r#"
+             except ::= except!(A);
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar("A", Config::new())
+            .unwrap();
     }
     #[test]
     fn simplify_grammar() {
@@ -910,7 +1145,37 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .simplify_grammar("S".to_owned());
+            .validate_grammar("S", Config::new())
+            .unwrap()
+            .simplify_grammar();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn simplify_grammar2() {
+        let source = r#"
+            S ::= A? A? A? A? A?;
+            A ::= 'cd';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar("S", Config::new())
+            .unwrap()
+            .simplify_grammar();
+        assert_yaml_snapshot!(result)
+    }
+
+    #[test]
+    fn simplify_grammar3() {
+        let source = r#"
+            S ::= 'a'? 'a'? 'a'? 'a'? 'a'?;
+            A ::= 'cd';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar("S", Config::new())
+            .unwrap()
+            .simplify_grammar();
         assert_yaml_snapshot!(result)
     }
 }
