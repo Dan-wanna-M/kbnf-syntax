@@ -1,0 +1,7 @@
+---
+source: src/grammar.rs
+assertion_line: 1154
+expression: result
+---
+S ::= 'cd' B | B | 'cd' 'cd' 'cd' B | 'cd' 'cd' 'cd' 'cd' B | 'cd' 'cd' 'cd' 'cd' 'cd' B | 'cd' 'cd' B;
+B ::= 'cd' 'a';

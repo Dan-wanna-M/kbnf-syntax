@@ -1,6 +1,0 @@
----
-source: src/grammar.rs
-assertion_line: 1158
-expression: result
----
-"S ::= S_optional_0 S_optional_0 S_optional_0 S_optional_0 | '' | S_optional_0 | S_optional_0 S_optional_0 S_optional_0 | S_optional_0 S_optional_0 S_optional_0 S_optional_0 S_optional_0 | S_optional_0 S_optional_0;\nS_optional_0 ::= 'a';\n"

@@ -1,0 +1,6 @@
+---
+source: src/grammar.rs
+assertion_line: 1168
+expression: result
+---
+S ::= 'a' | 'a' 'a' 'a' | '' | 'a' 'a' 'a' 'a' | 'a' 'a' | 'a' 'a' 'a' 'a' 'a';

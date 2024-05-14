@@ -1,11 +1,8 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    iter::zip,
-};
+use std::{fmt::Display, iter::zip};
 
 use alloc::vec::Vec;
 
+use rustc_hash::{FxHashMap, FxHashSet};
 use regex_automata::dfa::{
     self,
     dense::{Builder, Config},
@@ -32,12 +29,12 @@ pub struct ValidatedGrammar {
     pub expressions: Vec<ExpressionWithID>,
     pub interned_strings: InternedStrings,
     pub start_symbol: SymbolU32,
-    pub id_to_regex: HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+    pub id_to_regex: FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SimplifiedGrammar {
-    pub expressions: HashMap<SymbolU32, Rhs>,
+    pub expressions: FxHashMap<SymbolU32, Rhs>,
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
 }
@@ -129,7 +126,8 @@ impl ValidatedGrammar {
             self.start_symbol,
         );
         let expressions =
-            Self::remove_unit_production(expressions, self.start_symbol, &mut HashMap::new());
+            Self::remove_unit_production(expressions, self.start_symbol, &mut FxHashMap::default());
+        let expressions = Self::remove_fixed_point_production(expressions);
         SimplifiedGrammar {
             expressions,
             start_symbol: self.start_symbol,
@@ -141,7 +139,7 @@ impl ValidatedGrammar {
         expressions: Vec<ExpressionWithID>,
         start_symbol: SymbolU32,
     ) -> Vec<ExpressionWithID> {
-        let mut used_nonterminals = HashSet::new();
+        let mut used_nonterminals = FxHashSet::default();
         used_nonterminals.insert(start_symbol);
         for ExpressionWithID { lhs, rhs: node } in &expressions {
             if *lhs == start_symbol {
@@ -193,11 +191,10 @@ impl ValidatedGrammar {
         interned_strings: &mut InternedStrings,
     ) -> (
         Vec<(SymbolU32, NoNestingNode)>,
-        HashMap<SymbolU32, RegexExtKind>,
+        FxHashMap<SymbolU32, RegexExtKind>,
     ) {
         let mut flattened_rules: Vec<(SymbolU32, NoNestingNode)> = Vec::with_capacity(rules.len());
-        let mut special_nonterminals: HashMap<SymbolU32, RegexExtKind> =
-            HashMap::with_capacity(rules.len());
+        let mut special_nonterminals: FxHashMap<SymbolU32, RegexExtKind> = FxHashMap::default();
         let get_new_nonterminal_name =
             |nonterminal: SymbolU32, identifier: &str, interned_strings: &mut InternedStrings| {
                 let mut i = 0;
@@ -405,8 +402,8 @@ impl ValidatedGrammar {
         flattened_rules
     }
 
-    fn group_same_lhs_together(rules: Vec<(SymbolU32, Rhs)>) -> HashMap<SymbolU32, Rhs> {
-        let mut new_rules: HashMap<SymbolU32, Rhs> = HashMap::new();
+    fn group_same_lhs_together(rules: Vec<(SymbolU32, Rhs)>) -> FxHashMap<SymbolU32, Rhs> {
+        let mut new_rules: FxHashMap<SymbolU32, Rhs> = FxHashMap::default();
         for (lhs, rhs) in rules {
             let entry = new_rules.entry(lhs).or_insert(Rhs {
                 alternations: vec![],
@@ -417,9 +414,9 @@ impl ValidatedGrammar {
     }
 
     fn merge_consecutive_terminals(
-        rules: HashMap<SymbolU32, Rhs>,
+        rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &mut InternedStrings,
-    ) -> HashMap<SymbolU32, Rhs> {
+    ) -> FxHashMap<SymbolU32, Rhs> {
         rules
             .into_iter()
             .map(|(lhs, rhs)| {
@@ -471,8 +468,8 @@ impl ValidatedGrammar {
             .collect()
     }
 
-    fn deduplicate_alternations(rules: HashMap<SymbolU32, Rhs>) -> HashMap<SymbolU32, Rhs> {
-        let mut new_rules: HashMap<SymbolU32, HashSet<Alternation>> = HashMap::new();
+    fn deduplicate_alternations(rules: FxHashMap<SymbolU32, Rhs>) -> FxHashMap<SymbolU32, Rhs> {
+        let mut new_rules: FxHashMap<SymbolU32, FxHashSet<Alternation>> = FxHashMap::default();
         for (lhs, rhs) in rules {
             let entry = new_rules.entry(lhs).or_default();
             entry.extend(rhs.alternations.into_iter());
@@ -491,16 +488,16 @@ impl ValidatedGrammar {
     }
 
     fn remove_unit_production(
-        rules: HashMap<SymbolU32, Rhs>,
+        rules: FxHashMap<SymbolU32, Rhs>,
         start_nonterminal: SymbolU32,
-        special_nonterminals: &mut HashMap<SymbolU32, RegexExtKind>,
-    ) -> HashMap<SymbolU32, Rhs> {
+        special_nonterminals: &mut FxHashMap<SymbolU32, RegexExtKind>,
+    ) -> FxHashMap<SymbolU32, Rhs> {
         fn find_unit_chain<'a>(
-            rules: &'a HashMap<SymbolU32, Rhs>,
+            rules: &'a FxHashMap<SymbolU32, Rhs>,
             nonterminal_node: &'a OperatorFlattenedNode,
             nonterminal: SymbolU32,
-            visited: &HashSet<SymbolU32>,
-            special_nonterminals: &mut HashMap<SymbolU32, RegexExtKind>,
+            visited: &FxHashSet<SymbolU32>,
+            special_nonterminals: &mut FxHashMap<SymbolU32, RegexExtKind>,
         ) -> Vec<&'a OperatorFlattenedNode> {
             let mut last_nonterminal = nonterminal;
             let mut chain = vec![nonterminal_node];
@@ -568,13 +565,13 @@ impl ValidatedGrammar {
             chain
         }
         fn update_nonterminal<'a>(
-            rules: &'a HashMap<SymbolU32, Rhs>,
+            rules: &'a FxHashMap<SymbolU32, Rhs>,
             nonterminal_node: &'a OperatorFlattenedNode,
             nonterminal: SymbolU32,
-            visited: &mut HashSet<SymbolU32>,
-            src_to_dst: &mut HashMap<SymbolU32, OperatorFlattenedNode>,
+            visited: &mut FxHashSet<SymbolU32>,
+            src_to_dst: &mut FxHashMap<SymbolU32, OperatorFlattenedNode>,
             stack: &mut Vec<SymbolU32>,
-            special_nonterminals: &mut HashMap<SymbolU32, RegexExtKind>,
+            special_nonterminals: &mut FxHashMap<SymbolU32, RegexExtKind>,
         ) {
             let chain = find_unit_chain(
                 rules,
@@ -609,8 +606,8 @@ impl ValidatedGrammar {
             }
         }
         let mut stack = vec![start_nonterminal];
-        let mut chains: HashMap<SymbolU32, OperatorFlattenedNode> = HashMap::new();
-        let mut visited = HashSet::new();
+        let mut chains: FxHashMap<SymbolU32, OperatorFlattenedNode> = FxHashMap::default();
+        let mut visited = FxHashSet::default();
         while let Some(nonterminal) = stack.pop() {
             let rhs = rules.get(&nonterminal).unwrap();
             for a in rhs.alternations.iter() {
@@ -687,10 +684,10 @@ impl ValidatedGrammar {
     }
 
     fn expand_special_nonterminals(
-        rules: HashMap<SymbolU32, Rhs>,
-        special_nonterminals: HashMap<SymbolU32, RegexExtKind>,
+        rules: FxHashMap<SymbolU32, Rhs>,
+        special_nonterminals: FxHashMap<SymbolU32, RegexExtKind>,
         interned_strings: &mut InternedStrings,
-    ) -> HashMap<SymbolU32, Rhs> {
+    ) -> FxHashMap<SymbolU32, Rhs> {
         rules
             .into_iter()
             .map(|(lhs, mut rhs)| {
@@ -746,15 +743,13 @@ impl ValidatedGrammar {
     }
 
     fn merge_identical_rhs_across_nonterminals(
-        rules: HashMap<SymbolU32, Rhs>,
-    ) -> HashMap<SymbolU32, Rhs> {
-        let mut rules: Vec<(SymbolU32, Rhs)> = rules.into_iter().collect();
-        rules.sort_by_key(|(lhs, _)| *lhs);
+        mut rules: FxHashMap<SymbolU32, Rhs>,
+    ) -> FxHashMap<SymbolU32, Rhs> {
         loop {
             // In worst case it has O(n^2logn) complexity. I am curious whether there exists a better solution.
             let mut updated = false;
-            let mut merged_rhs_to_lhses = HashMap::new();
-            let mut lhs_to_lhs = HashMap::new();
+            let mut merged_rhs_to_lhses = FxHashMap::default();
+            let mut lhs_to_lhs = FxHashMap::default();
             for (lhs, mut rhs) in rules {
                 rhs.alternations.sort();
                 match merged_rhs_to_lhses.entry(rhs) {
@@ -808,7 +803,6 @@ impl ValidatedGrammar {
                     )
                 })
                 .collect();
-            rules.sort_by_key(|(lhs, _)| *lhs);
             if !updated {
                 break;
             }
@@ -817,17 +811,17 @@ impl ValidatedGrammar {
     }
 
     fn remove_nullable_rules(
-        rules: HashMap<SymbolU32, Rhs>,
+        rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
-        id_to_regex: &HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+        id_to_regex: &FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
         start_nonterminal: SymbolU32,
-    ) -> HashMap<SymbolU32, Rhs> {
+    ) -> FxHashMap<SymbolU32, Rhs> {
         fn find_nullable_nonterminals(
-            rules: &HashMap<SymbolU32, Rhs>,
+            rules: &FxHashMap<SymbolU32, Rhs>,
             interned_strings: &InternedStrings,
-            id_to_regex: &HashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
-        ) -> HashSet<OperatorFlattenedNode> {
-            let mut nullable_symbols: HashSet<OperatorFlattenedNode> = HashSet::new();
+            id_to_regex: &FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+        ) -> FxHashSet<OperatorFlattenedNode> {
+            let mut nullable_symbols: FxHashSet<OperatorFlattenedNode> = FxHashSet::default();
             loop {
                 // In worst case it has O(n^2) complexity. I am curious whether there exists a better solution.
                 let mut updated = false;
@@ -867,9 +861,9 @@ impl ValidatedGrammar {
             nullable_symbols
         }
         let nullable_nodes = find_nullable_nonterminals(&rules, interned_strings, id_to_regex);
-        let mut new_rules = HashMap::new();
+        let mut new_rules = FxHashMap::default();
         for (lhs, Rhs { alternations }) in rules {
-            let mut new_alterations = HashSet::new();
+            let mut new_alterations = FxHashSet::default();
             for Alternation { concatenations } in alternations {
                 let mut stack = vec![(vec![], concatenations.into_iter())];
                 while let Some((mut prefix, mut iter)) = stack.pop() {
@@ -910,6 +904,43 @@ impl ValidatedGrammar {
         }
         new_rules
     }
+
+    fn remove_fixed_point_production(
+        rules: FxHashMap<SymbolU32, Rhs>,
+    ) -> FxHashMap<SymbolU32, Rhs> {
+        rules
+            .into_iter()
+            .filter_map(|(lhs, rhs)| {
+                let new_rhs = Rhs {
+                    alternations: rhs
+                        .alternations
+                        .into_iter()
+                        .filter_map(|a| {
+                            if a.concatenations.len() == 1 {
+                                match a.concatenations.first().unwrap() {
+                                    OperatorFlattenedNode::Nonterminal(nonterminal) => {
+                                        if *nonterminal == lhs {
+                                            None
+                                        } else {
+                                            Some(a)
+                                        }
+                                    }
+                                    _ => Some(a),
+                                }
+                            } else {
+                                Some(a)
+                            }
+                        })
+                        .collect(),
+                };
+                if new_rhs.alternations.is_empty() {
+                    None
+                } else {
+                    Some((lhs, new_rhs))
+                }
+            })
+            .collect()
+    }
 }
 
 impl Grammar {
@@ -936,7 +967,7 @@ impl Grammar {
 
     fn check_undefined_nonterminal(&self, start_symbol: &str) -> Result<(), Box<SemanticError>> {
         fn check_defined_nonterminals(
-            defined_nonterminals: &HashSet<SymbolU32>,
+            defined_nonterminals: &FxHashSet<SymbolU32>,
             expressions: &[ExpressionWithID],
             interned_strings: &InternedStrings,
         ) -> Result<(), Box<SemanticError>> {
@@ -995,7 +1026,7 @@ impl Grammar {
             .expressions
             .iter()
             .map(|expression| expression.lhs)
-            .collect::<HashSet<SymbolU32>>();
+            .collect::<FxHashSet<SymbolU32>>();
         self.interned_strings
             .nonterminals
             .get(start_symbol)
@@ -1076,10 +1107,10 @@ impl Grammar {
         &self,
         config: Config,
     ) -> Result<
-        HashMap<SymbolU32, regex_automata::dfa::dense::DFA<std::vec::Vec<u32>>>,
+        FxHashMap<SymbolU32, regex_automata::dfa::dense::DFA<std::vec::Vec<u32>>>,
         Box<SemanticError>,
     > {
-        let mut regexes = HashMap::new();
+        let mut regexes = FxHashMap::default();
         for (id, regex_string) in &self.interned_strings.regex_strings {
             let regex = Builder::new()
                 .configure(config.clone())
@@ -1093,7 +1124,7 @@ impl Grammar {
 
 #[cfg(test)]
 mod test {
-    use insta::assert_yaml_snapshot;
+    use insta::assert_snapshot;
     use regex_automata::dfa::dense::Config;
 
     use crate::get_grammar;
@@ -1143,7 +1174,7 @@ mod test {
             .validate_grammar("S", Config::new())
             .unwrap()
             .simplify_grammar();
-        assert_yaml_snapshot!(result)
+        assert_snapshot!(result)
     }
 
     #[test]
@@ -1158,7 +1189,7 @@ mod test {
             .validate_grammar("S", Config::new())
             .unwrap()
             .simplify_grammar();
-        assert_yaml_snapshot!(result)
+        assert_snapshot!(result)
     }
 
     #[test]
@@ -1172,7 +1203,7 @@ mod test {
             .validate_grammar("S", Config::new())
             .unwrap()
             .simplify_grammar();
-        assert_yaml_snapshot!(result)
+        assert_snapshot!(result)
     }
 
     #[test]
@@ -1186,7 +1217,7 @@ mod test {
             .validate_grammar("S", Config::new())
             .unwrap()
             .simplify_grammar();
-        assert_yaml_snapshot!(result)
+        assert_snapshot!(result)
     }
 
     #[test]
@@ -1200,6 +1231,6 @@ mod test {
             .validate_grammar("S", Config::new())
             .unwrap()
             .simplify_grammar();
-        assert_yaml_snapshot!(result)
+        assert_snapshot!(result)
     }
 }

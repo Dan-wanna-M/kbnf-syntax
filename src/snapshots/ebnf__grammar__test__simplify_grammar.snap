@@ -1,0 +1,9 @@
+---
+source: src/grammar.rs
+assertion_line: 1177
+expression: result
+---
+B_optional_0_group_0 ::= 'a' | 'a' B_optional_0_group_0;
+S ::= 'abc' | 'jk' A | 'ab' S | 'ef' | 'ef' S_repeat0_0 | 'ab';
+S_repeat0_0 ::= S_repeat0_0 B_optional_0_group_0 | B_optional_0_group_0;
+A ::= 'cd' | 'Ac' | A 'c';

@@ -1,6 +1,0 @@
----
-source: src/grammar.rs
-assertion_line: 1161
-expression: result
----
-"S ::= 'cd' 'cd' 'cd' 'cd' B | 'cd' 'cd' B | 'cd' 'cd' 'cd' 'cd' 'cd' B | B | 'cd' 'cd' 'cd' B | 'cd' B;\nB ::= 'cd' 'a';\n"
