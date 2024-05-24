@@ -67,32 +67,33 @@ fn parse_terminal(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             complete::char('\''),
-            escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'"#)),
+            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'"#))),
             complete::char('\''),
         ),
         delimited(
             complete::char('"'),
-            escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\""#)),
+            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\""#))),
             complete::char('"'),
         ),
     ))(input)?;
 
-    Ok((input, Node::Terminal(string.to_string())))
+    Ok((input, Node::Terminal(string.unwrap_or("").to_string())))
 }
 
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             tag("#'"),
-            escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'"#)),
+            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'"#))),
             complete::char('\''),
         ),
         delimited(
             tag("#\""),
-            escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\""#)),
+            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\""#))),
             complete::char('"'),
         ),
     ))(input)?;
+    let string = string.unwrap_or("");
     let node = Node::RegexString(string.to_string());
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(string)
@@ -481,6 +482,14 @@ mod test {
     fn empty2() {
         let source = r#"
              except ::= A|;
+        "#;
+        let _ = parse_expressions(source).unwrap();
+    }
+    #[test]
+    fn empty3() {
+        let source = r#"
+             except ::='';
+             except ::= #"";
         "#;
         let _ = parse_expressions(source).unwrap();
     }

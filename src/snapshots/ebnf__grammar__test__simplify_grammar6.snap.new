@@ -1,0 +1,6 @@
+---
+source: src/grammar.rs
+assertion_line: 1242
+expression: result
+---
+S ::= 'cd' | 'cd' #"";

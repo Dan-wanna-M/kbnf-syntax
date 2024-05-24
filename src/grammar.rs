@@ -2,12 +2,12 @@ use std::{fmt::Display, iter::zip};
 
 use alloc::vec::Vec;
 
-use rustc_hash::{FxHashMap, FxHashSet};
 use regex_automata::dfa::{
     self,
     dense::{Builder, Config},
     Automaton,
 };
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
 use string_interner::symbol::SymbolU32;
 
@@ -56,7 +56,7 @@ impl Display for SimplifiedGrammar {
                         OperatorFlattenedNode::RegexString(value) => {
                             let value =
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
-                            buffer.push_str(&format!("\"{}\"", value));
+                            buffer.push_str(&format!("#\"{}\"", value));
                         }
                         OperatorFlattenedNode::Nonterminal(value) => {
                             let value = self.interned_strings.nonterminals.resolve(*value).unwrap();
@@ -119,12 +119,8 @@ impl ValidatedGrammar {
             &mut self.interned_strings,
         );
         let expressions = Self::merge_identical_rhs_across_nonterminals(expressions);
-        let expressions = Self::remove_nullable_rules(
-            expressions,
-            &self.interned_strings,
-            &self.id_to_regex,
-            self.start_symbol,
-        );
+        let expressions =
+            Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
         let expressions =
             Self::remove_unit_production(expressions, self.start_symbol, &mut FxHashMap::default());
         let expressions = Self::remove_fixed_point_production(expressions);
@@ -814,7 +810,6 @@ impl ValidatedGrammar {
         rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
         id_to_regex: &FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
-        start_nonterminal: SymbolU32,
     ) -> FxHashMap<SymbolU32, Rhs> {
         fn find_nullable_nonterminals(
             rules: &FxHashMap<SymbolU32, Rhs>,
@@ -829,14 +824,14 @@ impl ValidatedGrammar {
                     if nullable_symbols.contains(&OperatorFlattenedNode::Nonterminal(*lhs)) {
                         continue;
                     }
-                    if rhs.alternations.iter().any(|a| {
+                    if rhs.alternations.iter().fold(true, |result, a| {
                         a.concatenations.iter().all(|c| match c {
                             OperatorFlattenedNode::Terminal(value) => {
                                 if "" == interned_strings.terminals.resolve(*value).unwrap() {
                                     nullable_symbols.insert(c.clone());
                                     true
                                 } else {
-                                    false
+                                    result
                                 }
                             }
                             OperatorFlattenedNode::RegexString(value) => {
@@ -844,7 +839,7 @@ impl ValidatedGrammar {
                                     nullable_symbols.insert(c.clone());
                                     true
                                 } else {
-                                    false
+                                    result
                                 }
                             }
                             _ => nullable_symbols.contains(c),
@@ -885,12 +880,6 @@ impl ValidatedGrammar {
                         // prefix.reverse();
                         new_alterations.insert(Alternation {
                             concatenations: prefix,
-                        });
-                    } else if start_nonterminal == lhs {
-                        new_alterations.insert(Alternation {
-                            concatenations: vec![OperatorFlattenedNode::Terminal(
-                                interned_strings.terminals.get("").unwrap(),
-                            )],
                         });
                     }
                 }
@@ -1061,7 +1050,17 @@ impl Grammar {
                     }
                     NodeWithID::ANY => {}
                     NodeWithID::EXCEPT(excepted, _) => match excepted {
-                        ExceptedWithID::Terminal(_) => {}
+                        ExceptedWithID::Terminal(x) => {
+                            if Some(*x) == self.interned_strings.terminals.get("") {
+                                return Err(Box::new(SemanticError::InvalidExceptedTerminal(
+                                    self.interned_strings
+                                        .terminals
+                                        .resolve(*x)
+                                        .unwrap()
+                                        .to_string(),
+                                )));
+                            }
+                        }
                         ExceptedWithID::Nonterminal(nonterminal) => {
                             for expression in self
                                 .expressions
@@ -1071,7 +1070,19 @@ impl Grammar {
                                 let mut stack = vec![&expression.rhs];
                                 while let Some(node) = stack.pop() {
                                     match node {
-                                        NodeWithID::Terminal(_) => {}
+                                        NodeWithID::Terminal(x) => {
+                                            if Some(*x) == self.interned_strings.terminals.get("") {
+                                                return Err(Box::new(
+                                                    SemanticError::InvalidExceptedTerminal(
+                                                        self.interned_strings
+                                                            .terminals
+                                                            .resolve(*x)
+                                                            .unwrap()
+                                                            .to_string(),
+                                                    ),
+                                                ));
+                                            }
+                                        }
                                         NodeWithID::Multiple(nodes) => {
                                             stack.extend(nodes);
                                         }
@@ -1082,7 +1093,7 @@ impl Grammar {
                                         NodeWithID::Unknown => unreachable!(),
                                         _ => {
                                             return Err(Box::new(
-                                                SemanticError::InvalidExceptednonterminal(
+                                                SemanticError::InvalidExceptedNonterminal(
                                                     self.interned_strings
                                                         .nonterminals
                                                         .resolve(*nonterminal)
@@ -1162,6 +1173,30 @@ mod test {
             .unwrap();
     }
     #[test]
+    #[should_panic]
+    fn invalid_excepted_nonterminal() {
+        let source = r#"
+             except ::= except!(A);
+             A ::= 'a'|('a'|'b');
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar("A", Config::new())
+            .unwrap();
+    }
+    #[test]
+    #[should_panic]
+    fn invalid_excepted_terminal() {
+        let source = r#"
+             except ::= except!('');
+             A ::= 'a'|'';
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar("A", Config::new())
+            .unwrap();
+    }
+    #[test]
     fn simplify_grammar() {
         let source = r#"
             S ::= 'ab'S? | 'jk'(((A))) | 'ef'(B)*| 'a''b''c'|'abc';
@@ -1225,6 +1260,20 @@ mod test {
         let source = r#"
             S ::= 'ab'S? | 'jk'(((A)));
             A ::= 'cd'|'cd'|A'c'|'Ac';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar("S", Config::new())
+            .unwrap()
+            .simplify_grammar();
+        assert_snapshot!(result)
+    }
+
+    #[test]
+    fn simplify_grammar6() {
+        let source = r#"
+            S ::= 'cd'A;
+            A ::= #"";
         "#;
         let result = get_grammar(source)
             .unwrap()
