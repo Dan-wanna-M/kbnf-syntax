@@ -13,7 +13,6 @@ pub enum Node {
     RegexExt(Box<Node>, RegexExtKind),
     Symbol(Box<Node>, SymbolKind, Box<Node>),
     Group(Box<Node>),
-    ANY,
     EXCEPT(Excepted, Option<usize>),
 }
 #[allow(clippy::upper_case_acronyms)]
@@ -26,7 +25,6 @@ pub enum NodeWithID {
     RegexExt(Box<NodeWithID>, RegexExtKind),
     Symbol(Box<NodeWithID>, SymbolKind, Box<NodeWithID>),
     Group(Box<NodeWithID>),
-    ANY,
     EXCEPT(ExceptedWithID, Option<usize>),
     Unknown,
 }
@@ -39,7 +37,6 @@ pub(crate) enum NoNestingNode {
     Nonterminal(SymbolU32),
     Concatenations(Vec<NoNestingNode>),
     Alternations(Vec<NoNestingNode>),
-    ANY,
     EXCEPT(ExceptedWithID, Option<usize>),
 }
 #[allow(clippy::upper_case_acronyms)]
@@ -48,7 +45,6 @@ pub enum OperatorFlattenedNode {
     Terminal(SymbolU32),
     RegexString(SymbolU32),
     Nonterminal(SymbolU32),
-    ANY,
     EXCEPT(ExceptedWithID, Option<usize>),
 }
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]

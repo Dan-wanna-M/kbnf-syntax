@@ -119,11 +119,6 @@ fn parse_nonterminal(input: &str) -> Res<&str, Node> {
     Ok((input, Node::Nonterminal(symbol.to_string())))
 }
 
-fn parse_any(input: &str) -> Res<&str, Node> {
-    let (input, _) = delimited(complete::multispace0, tag("any!"), complete::multispace0)(input)?;
-    Ok((input, Node::ANY))
-}
-
 fn parse_except(input: &str) -> Res<&str, Node> {
     let (input, (excepted, number_str)) = preceded(
         tag("except!"),
@@ -188,7 +183,6 @@ fn parse_node(input: &str) -> Res<&str, Node> {
             parse_terminal,
             parse_regex_string,
             parse_except,
-            parse_any,
             parse_nonterminal,
         )),
     )(input)?;

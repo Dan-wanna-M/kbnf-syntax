@@ -62,9 +62,6 @@ impl Display for SimplifiedGrammar {
                             let value = self.interned_strings.nonterminals.resolve(*value).unwrap();
                             buffer.push_str(value);
                         }
-                        OperatorFlattenedNode::ANY => {
-                            buffer.push_str("any!");
-                        }
                         OperatorFlattenedNode::EXCEPT(excepted, _) => match excepted {
                             ExceptedWithID::Terminal(value) => {
                                 let value =
@@ -162,7 +159,6 @@ impl ValidatedGrammar {
                         NodeWithID::Group(node) => {
                             stack.push(node);
                         }
-                        NodeWithID::ANY => {}
                         NodeWithID::EXCEPT(excepted, _) => match excepted {
                             ExceptedWithID::Terminal(_) => {}
                             ExceptedWithID::Nonterminal(nonterminal) => {
@@ -307,9 +303,6 @@ impl ValidatedGrammar {
                         NodeWithID::Group(node) => {
                             add_new_rule(lhs, "group", new_parent, *node, &mut rules, None);
                         }
-                        NodeWithID::ANY => {
-                            *new_parent = NoNestingNode::ANY;
-                        }
                         NodeWithID::EXCEPT(excepted, o) => {
                             *new_parent = NoNestingNode::EXCEPT(excepted, o);
                         }
@@ -380,11 +373,6 @@ impl ValidatedGrammar {
                         });
                         stack.push((r, rhs.alternations.len() - 1)); // put the right node to the new alternation
                         stack.push((l, rhs.alternations.len() - 2)); // put the left node to the previous alternation
-                    }
-                    NoNestingNode::ANY => {
-                        rhs.alternations[index]
-                            .concatenations
-                            .push(OperatorFlattenedNode::ANY);
                     }
                     NoNestingNode::EXCEPT(excepted, x) => {
                         rhs.alternations[index]
@@ -646,7 +634,7 @@ impl ValidatedGrammar {
         rules
             .into_iter()
             .filter_map(|(lhs, rhs)| {
-                if chains.get(&lhs).is_some() {
+                if chains.contains_key(&lhs) {
                     None
                 } else {
                     Some((
@@ -990,7 +978,6 @@ impl Grammar {
                         NodeWithID::Group(node) => {
                             stack.push(node);
                         }
-                        NodeWithID::ANY => {}
                         NodeWithID::EXCEPT(excepted, _) => match excepted {
                             ExceptedWithID::Terminal(_) => {}
                             ExceptedWithID::Nonterminal(nonterminal) => {
@@ -1048,7 +1035,6 @@ impl Grammar {
                     NodeWithID::Group(node) => {
                         stack.push(node);
                     }
-                    NodeWithID::ANY => {}
                     NodeWithID::EXCEPT(excepted, _) => match excepted {
                         ExceptedWithID::Terminal(x) => {
                             if Some(*x) == self.interned_strings.terminals.get("") {
