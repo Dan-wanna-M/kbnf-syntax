@@ -39,7 +39,7 @@ pub struct ValidatedGrammar {
 
 #[derive(Debug, Clone)]
 pub struct SimplifiedGrammar {
-    pub expressions: FxHashMap<SymbolU32, Rhs>,
+    pub expressions: Vec<Rhs>,
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
     pub id_to_regex: Vec<FiniteStateAutomaton>,
@@ -48,8 +48,12 @@ pub struct SimplifiedGrammar {
 impl Display for SimplifiedGrammar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut buffer = String::new();
-        for (lhs, rhs) in &self.expressions {
-            let lhs = self.interned_strings.nonterminals.resolve(*lhs).unwrap();
+        for (lhs, rhs) in self.expressions.iter().enumerate() {
+            let lhs = self
+                .interned_strings
+                .nonterminals
+                .resolve(SymbolU32::try_from_usize(lhs).unwrap())
+                .unwrap();
             buffer.push_str(lhs);
             buffer.push_str(" ::= ");
             for (j, alternation) in rhs.alternations.iter().enumerate() {
@@ -135,8 +139,8 @@ impl ValidatedGrammar {
             config,
             &mut self.id_to_regex,
         );
-        let (interned_strings, id_to_regexes) =
-            Self::compact_interned_strings(&expressions, self.interned_strings, self.id_to_regex);
+        let (interned_strings, id_to_regexes, expressions) =
+            Self::compact_interned(expressions, self.interned_strings, self.id_to_regex);
         SimplifiedGrammar {
             expressions,
             start_symbol: self.start_symbol,
@@ -1008,45 +1012,55 @@ impl ValidatedGrammar {
             .collect()
     }
 
-    fn compact_interned_strings(
-        rules: &FxHashMap<SymbolU32, Rhs>,
+    fn compact_interned(
+        rules: FxHashMap<SymbolU32, Rhs>,
         interned: InternedStrings,
         mut id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
-    ) -> (InternedStrings, Vec<FiniteStateAutomaton>) {
+    ) -> (InternedStrings, Vec<FiniteStateAutomaton>, Vec<Rhs>) {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
-        for rhs in rules.values() {
-            for Alternation { concatenations } in &rhs.alternations {
+        let mut new_rules: Vec<Rhs> = Vec::with_capacity(rules.len());
+
+        for (lhs, rhs) in rules.into_iter() {
+            let id =
+                interned_nonterminals.get_or_intern(interned.nonterminals.resolve(lhs).unwrap());
+            assert!(id.to_usize() == new_rules.len());
+            new_rules.push(rhs);
+        }
+        for rhs in new_rules.iter_mut() {
+            for Alternation { concatenations } in &mut rhs.alternations {
                 for concatenation in concatenations {
                     match concatenation {
                         OperatorFlattenedNode::Nonterminal(nonterminal) => {
-                            interned_nonterminals.get_or_intern(
+                            *nonterminal = interned_nonterminals.get_or_intern(
                                 interned.nonterminals.resolve(*nonterminal).unwrap(),
                             );
                         }
                         OperatorFlattenedNode::Terminal(terminal) => {
-                            interned_terminals
+                            *terminal = interned_terminals
                                 .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
                         }
                         OperatorFlattenedNode::RegexString(regex) => {
-                            new_id_to_regex.push(id_to_regex.remove(regex).unwrap().clone());
                             let new_id = interned_regexes
                                 .get_or_intern(interned.regex_strings.resolve(*regex).unwrap());
-                            assert!(new_id.to_usize() == new_id_to_regex.len() - 1);
+                            assert!(new_id.to_usize() == new_id_to_regex.len());
+                            new_id_to_regex.push(id_to_regex.remove(regex).unwrap().clone());
+                            *regex = new_id;
+
                             // Should not fail since StringBackend is contiguous.
                         }
                         OperatorFlattenedNode::EXCEPT(
                             ExceptedWithID::Nonterminal(nonterminal),
                             _,
                         ) => {
-                            interned_nonterminals.get_or_intern(
+                            *nonterminal = interned_nonterminals.get_or_intern(
                                 interned.nonterminals.resolve(*nonterminal).unwrap(),
                             );
                         }
                         OperatorFlattenedNode::EXCEPT(ExceptedWithID::Terminal(terminal), _) => {
-                            interned_terminals
+                            *terminal = interned_terminals
                                 .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
                         }
                     }
@@ -1060,6 +1074,7 @@ impl ValidatedGrammar {
                 regex_strings: interned_regexes,
             },
             new_id_to_regex,
+            new_rules,
         )
     }
 }
@@ -1474,6 +1489,7 @@ mod test {
                 min_terminals: 2,
                 regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             });
+        println!("{:?}", result);
         assert_snapshot!(result)
     }
 
