@@ -47,11 +47,11 @@ pub use node::{Node, RegexExtKind, SymbolKind};
 use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
 
 mod expression;
-mod grammar;
-mod node;
+pub mod grammar;
+pub mod node;
 mod parser;
 pub mod semantic_error;
-mod regex;
+pub mod regex;
 
 #[derive(Debug, Clone)]
 pub struct InternedStrings {
