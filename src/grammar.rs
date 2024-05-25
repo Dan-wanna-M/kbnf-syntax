@@ -3,16 +3,12 @@ use std::{fmt::Display, iter::zip};
 use alloc::vec::Vec;
 
 use regex_automata::{
-    dfa::{
-        self,
-        dense::{Builder, Config},
-        Automaton,
-    },
+    dfa::{self},
     hybrid,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
-use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
+use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner, Symbol};
 
 use crate::{
     expression::ExpressionWithID,
@@ -46,6 +42,7 @@ pub struct SimplifiedGrammar {
     pub expressions: FxHashMap<SymbolU32, Rhs>,
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
+    pub id_to_regex: Vec<FiniteStateAutomaton>,
 }
 
 impl Display for SimplifiedGrammar {
@@ -138,11 +135,13 @@ impl ValidatedGrammar {
             config,
             &mut self.id_to_regex,
         );
-        let interned_strings = Self::compact_interned_strings(self.interned_strings);
+        let (interned_strings, id_to_regexes) =
+            Self::compact_interned_strings(&expressions, self.interned_strings, self.id_to_regex);
         SimplifiedGrammar {
             expressions,
             start_symbol: self.start_symbol,
             interned_strings,
+            id_to_regex: id_to_regexes,
         }
     }
 
@@ -1009,24 +1008,59 @@ impl ValidatedGrammar {
             .collect()
     }
 
-    fn compact_interned_strings(interned: InternedStrings) -> InternedStrings {
+    fn compact_interned_strings(
+        rules: &FxHashMap<SymbolU32, Rhs>,
+        interned: InternedStrings,
+        mut id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
+    ) -> (InternedStrings, Vec<FiniteStateAutomaton>) {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
-        for (_, x) in interned.nonterminals.into_iter() {
-            interned_nonterminals.get_or_intern(x);
+        let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
+        for rhs in rules.values() {
+            for Alternation { concatenations } in &rhs.alternations {
+                for concatenation in concatenations {
+                    match concatenation {
+                        OperatorFlattenedNode::Nonterminal(nonterminal) => {
+                            interned_nonterminals.get_or_intern(
+                                interned.nonterminals.resolve(*nonterminal).unwrap(),
+                            );
+                        }
+                        OperatorFlattenedNode::Terminal(terminal) => {
+                            interned_terminals
+                                .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
+                        }
+                        OperatorFlattenedNode::RegexString(regex) => {
+                            new_id_to_regex.push(id_to_regex.remove(regex).unwrap().clone());
+                            let new_id = interned_regexes
+                                .get_or_intern(interned.regex_strings.resolve(*regex).unwrap());
+                            assert!(new_id.to_usize() == new_id_to_regex.len() - 1);
+                            // Should not fail since StringBackend is contiguous.
+                        }
+                        OperatorFlattenedNode::EXCEPT(
+                            ExceptedWithID::Nonterminal(nonterminal),
+                            _,
+                        ) => {
+                            interned_nonterminals.get_or_intern(
+                                interned.nonterminals.resolve(*nonterminal).unwrap(),
+                            );
+                        }
+                        OperatorFlattenedNode::EXCEPT(ExceptedWithID::Terminal(terminal), _) => {
+                            interned_terminals
+                                .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
+                        }
+                    }
+                }
+            }
         }
-        for (_, x) in interned.terminals.into_iter() {
-            interned_terminals.get_or_intern(x);
-        }
-        for (_, x) in interned.regex_strings.into_iter() {
-            interned_regexes.get_or_intern(x);
-        }
-        InternedStrings {
-            nonterminals: interned_nonterminals,
-            terminals: interned_terminals,
-            regex_strings: interned_regexes,
-        }
+        (
+            InternedStrings {
+                nonterminals: interned_nonterminals,
+                terminals: interned_terminals,
+                regex_strings: interned_regexes,
+            },
+            new_id_to_regex,
+        )
     }
 }
 
