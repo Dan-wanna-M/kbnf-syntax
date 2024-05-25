@@ -51,6 +51,7 @@ mod grammar;
 mod node;
 mod parser;
 pub mod semantic_error;
+mod regex;
 
 #[derive(Debug, Clone)]
 pub struct InternedStrings {
@@ -146,9 +147,6 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                         }
                         _ => unreachable!(),
                     }
-                }
-                Node::ANY => {
-                    *parent = NodeWithID::ANY;
                 }
                 Node::EXCEPT(excepted, o) => match excepted {
                     Excepted::Terminal(terminal) => {

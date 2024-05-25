@@ -437,15 +437,6 @@ mod test {
     }
 
     #[test]
-    fn any_special_nonterminal() {
-        let source = r#"
-             any ::= any!'this is a wildcard';
-        "#;
-        let result = parse_expressions(source).unwrap();
-        assert_yaml_snapshot!(result)
-    }
-
-    #[test]
     fn except_special_nonterminal1() {
         let source = r#"
              except ::= except!(    '\n\n'   ,   1);

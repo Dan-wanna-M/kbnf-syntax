@@ -9,5 +9,8 @@ pub enum SemanticError {
     #[error("the excepted terminal `{0}` is invalid. It should be nonempty.")]
     InvalidExceptedTerminal(String),
     #[error(transparent)]
-    RegexBuildError(#[from] BuildError),
+    DfaRegexBuildError(#[from] BuildError),
+    #[error(transparent)]
+    LazyDfaRegexBuildError(#[from] regex_automata::hybrid::BuildError),
+    
 }

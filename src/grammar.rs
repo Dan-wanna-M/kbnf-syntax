@@ -2,10 +2,13 @@ use std::{fmt::Display, iter::zip};
 
 use alloc::vec::Vec;
 
-use regex_automata::dfa::{
-    self,
-    dense::{Builder, Config},
-    Automaton,
+use regex_automata::{
+    dfa::{
+        self,
+        dense::{Builder, Config},
+        Automaton,
+    },
+    hybrid,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
@@ -14,6 +17,7 @@ use string_interner::symbol::SymbolU32;
 use crate::{
     expression::ExpressionWithID,
     node::{Alternation, ExceptedWithID, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs},
+    regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     semantic_error::SemanticError,
     InternedStrings, RegexExtKind, SymbolKind,
 };
@@ -29,7 +33,7 @@ pub struct ValidatedGrammar {
     pub expressions: Vec<ExpressionWithID>,
     pub interned_strings: InternedStrings,
     pub start_symbol: SymbolU32,
-    pub id_to_regex: FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+    pub id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
 }
 
 #[derive(Debug, Clone)]
@@ -120,6 +124,7 @@ impl ValidatedGrammar {
             Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
         let expressions =
             Self::remove_unit_production(expressions, self.start_symbol, &mut FxHashMap::default());
+
         let expressions = Self::remove_fixed_point_production(expressions);
         SimplifiedGrammar {
             expressions,
@@ -797,12 +802,13 @@ impl ValidatedGrammar {
     fn remove_nullable_rules(
         rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
-        id_to_regex: &FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+        id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
     ) -> FxHashMap<SymbolU32, Rhs> {
+        #[allow(clippy::unnecessary_fold)]
         fn find_nullable_nonterminals(
             rules: &FxHashMap<SymbolU32, Rhs>,
             interned_strings: &InternedStrings,
-            id_to_regex: &FxHashMap<SymbolU32, dfa::dense::DFA<Vec<u32>>>,
+            id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
         ) -> FxHashSet<OperatorFlattenedNode> {
             let mut nullable_symbols: FxHashSet<OperatorFlattenedNode> = FxHashSet::default();
             loop {
@@ -812,26 +818,30 @@ impl ValidatedGrammar {
                     if nullable_symbols.contains(&OperatorFlattenedNode::Nonterminal(*lhs)) {
                         continue;
                     }
-                    if rhs.alternations.iter().fold(true, |result, a| {
-                        a.concatenations.iter().all(|c| match c {
-                            OperatorFlattenedNode::Terminal(value) => {
-                                if "" == interned_strings.terminals.resolve(*value).unwrap() {
-                                    nullable_symbols.insert(c.clone());
-                                    true
-                                } else {
-                                    result
-                                }
-                            }
-                            OperatorFlattenedNode::RegexString(value) => {
-                                if id_to_regex.get(value).unwrap().has_empty() {
-                                    nullable_symbols.insert(c.clone());
-                                    true
-                                } else {
-                                    result
-                                }
-                            }
-                            _ => nullable_symbols.contains(c),
-                        })
+                    if rhs.alternations.iter().fold(false, |result, a| {
+                        result
+                            || a.concatenations
+                                .iter()
+                                .fold(true, |inner_result, c| match c {
+                                    OperatorFlattenedNode::Terminal(value) => {
+                                        if "" == interned_strings.terminals.resolve(*value).unwrap()
+                                        {
+                                            nullable_symbols.insert(c.clone());
+                                            inner_result & true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    OperatorFlattenedNode::RegexString(value) => {
+                                        if id_to_regex.get(value).unwrap().has_empty() {
+                                            nullable_symbols.insert(c.clone());
+                                            inner_result & true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    _ => nullable_symbols.contains(c),
+                                })
                     }) {
                         nullable_symbols.insert(OperatorFlattenedNode::Nonterminal(*lhs));
                         updated = true;
@@ -852,7 +862,11 @@ impl ValidatedGrammar {
                 while let Some((mut prefix, mut iter)) = stack.pop() {
                     if let Some(node) = iter.next() {
                         if nullable_nodes.contains(&node) {
-                            if matches!(node, OperatorFlattenedNode::Terminal(_)) {
+                            if matches!(
+                                node,
+                                OperatorFlattenedNode::Terminal(_)
+                                    | OperatorFlattenedNode::RegexString(_)
+                            ) {
                                 stack.push((prefix, iter));
                             } else {
                                 let without = prefix.clone();
@@ -924,7 +938,7 @@ impl Grammar {
     pub fn validate_grammar(
         self,
         start_symbol: &str,
-        regex_config: Config,
+        regex_config: FiniteStateAutomatonConfig,
     ) -> Result<ValidatedGrammar, Box<SemanticError>> {
         let start = self
             .interned_strings
@@ -1102,17 +1116,30 @@ impl Grammar {
 
     fn compile_regex_string(
         &self,
-        config: Config,
-    ) -> Result<
-        FxHashMap<SymbolU32, regex_automata::dfa::dense::DFA<std::vec::Vec<u32>>>,
-        Box<SemanticError>,
-    > {
+        config: FiniteStateAutomatonConfig,
+    ) -> Result<FxHashMap<SymbolU32, FiniteStateAutomaton>, Box<SemanticError>> {
         let mut regexes = FxHashMap::default();
         for (id, regex_string) in &self.interned_strings.regex_strings {
-            let regex = Builder::new()
-                .configure(config.clone())
-                .build(regex_string)
-                .map_err(SemanticError::RegexBuildError)?;
+            let regex: Result<FiniteStateAutomaton, SemanticError> = match config {
+                FiniteStateAutomatonConfig::Dfa(ref config) => {
+                    regex_automata::dfa::dense::Builder::new()
+                        .configure(config.clone())
+                        .build(regex_string)
+                        .map(FiniteStateAutomaton::Dfa)
+                        .map_err(SemanticError::DfaRegexBuildError)
+                }
+                FiniteStateAutomatonConfig::LazyDFA(ref config) => {
+                    regex_automata::hybrid::dfa::Builder::new()
+                        .configure(config.clone())
+                        .build(regex_string)
+                        .map(FiniteStateAutomaton::LazyDFA)
+                        .map_err(SemanticError::LazyDfaRegexBuildError)
+                }
+            };
+            let regex = match regex {
+                Ok(x) => x,
+                Err(e) => return Err(Box::new(e)),
+            };
             regexes.insert(id, regex);
         }
         Ok(regexes)
@@ -1133,7 +1160,10 @@ mod test {
         "#;
         let _ = get_grammar(source)
             .unwrap()
-            .validate_grammar("except", Config::new())
+            .validate_grammar(
+                "except",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap();
     }
     #[test]
@@ -1144,7 +1174,10 @@ mod test {
         "#;
         let _ = get_grammar(source)
             .unwrap()
-            .validate_grammar("except", Config::new())
+            .validate_grammar(
+                "except",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap();
     }
     #[test]
@@ -1155,7 +1188,10 @@ mod test {
         "#;
         let _ = get_grammar(source)
             .unwrap()
-            .validate_grammar("A", Config::new())
+            .validate_grammar(
+                "A",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap();
     }
     #[test]
@@ -1167,7 +1203,10 @@ mod test {
         "#;
         let _ = get_grammar(source)
             .unwrap()
-            .validate_grammar("A", Config::new())
+            .validate_grammar(
+                "A",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap();
     }
     #[test]
@@ -1179,7 +1218,10 @@ mod test {
         "#;
         let _ = get_grammar(source)
             .unwrap()
-            .validate_grammar("A", Config::new())
+            .validate_grammar(
+                "A",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap();
     }
     #[test]
@@ -1192,7 +1234,10 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .validate_grammar("S", Config::new())
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap()
             .simplify_grammar();
         assert_snapshot!(result)
@@ -1207,7 +1252,10 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .validate_grammar("S", Config::new())
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap()
             .simplify_grammar();
         assert_snapshot!(result)
@@ -1221,7 +1269,10 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .validate_grammar("S", Config::new())
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap()
             .simplify_grammar();
         assert_snapshot!(result)
@@ -1235,7 +1286,10 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .validate_grammar("S", Config::new())
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap()
             .simplify_grammar();
         assert_snapshot!(result)
@@ -1249,7 +1303,10 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .validate_grammar("S", Config::new())
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap()
             .simplify_grammar();
         assert_snapshot!(result)
@@ -1263,7 +1320,10 @@ mod test {
         "#;
         let result = get_grammar(source)
             .unwrap()
-            .validate_grammar("S", Config::new())
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
             .unwrap()
             .simplify_grammar();
         assert_snapshot!(result)
