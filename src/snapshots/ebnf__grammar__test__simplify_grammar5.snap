@@ -1,7 +1,6 @@
 ---
 source: src/grammar.rs
-assertion_line: 1199
 expression: result
 ---
-S ::= 'ab' | 'ab' S | 'jk' A;
-A ::= 'cd' | A 'c' | 'Ac';
+S ::= 'ab' S | 'jk' A | 'ab';
+A ::= A 'c' | #"cd|Ac";

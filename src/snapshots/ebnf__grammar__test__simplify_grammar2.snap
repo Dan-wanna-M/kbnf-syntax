@@ -2,5 +2,4 @@
 source: src/grammar.rs
 expression: result
 ---
-S ::= 'cd' B | B | 'cd' 'cd' 'cd' B | 'cd' 'cd' 'cd' 'cd' B | 'cd' 'cd' 'cd' 'cd' 'cd' B | 'cd' 'cd' B;
-B ::= 'cd' 'a';
+S ::= #"cdcda|cda|cdcdcdcda|cdcdcdcdcda|cdcdcdcdcdcda|cdcdcda";

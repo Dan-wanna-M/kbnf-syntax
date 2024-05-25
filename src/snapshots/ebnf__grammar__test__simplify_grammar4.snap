@@ -4,4 +4,4 @@ expression: result
 ---
 S_repeat1_0 ::= S_repeat1_0_group_0_repeat0_0 | S_repeat1_0 S_repeat1_0_group_0_repeat0_0;
 S ::= S_repeat1_0;
-S_repeat1_0_group_0_repeat0_0 ::= 'cd' | S_repeat1_0_group_0_repeat0_0 'cd';
+S_repeat1_0_group_0_repeat0_0 ::= S_repeat1_0_group_0_repeat0_0 'cd' | 'cd';

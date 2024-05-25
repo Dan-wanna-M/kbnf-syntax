@@ -2,4 +2,4 @@
 source: src/grammar.rs
 expression: result
 ---
-S ::= #"a|aaa|aaaa|aa|aaaaa";
+S ::= #"d|c|a|b";

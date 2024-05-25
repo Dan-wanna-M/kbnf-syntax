@@ -12,7 +12,7 @@ use regex_automata::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Serialize;
-use string_interner::symbol::SymbolU32;
+use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
 
 use crate::{
     expression::ExpressionWithID,
@@ -26,6 +26,11 @@ use crate::{
 pub struct Grammar {
     pub expressions: Vec<ExpressionWithID>,
     pub interned_strings: InternedStrings,
+}
+
+pub struct CompressionConfig {
+    pub min_terminals: usize,
+    pub regex_config: FiniteStateAutomatonConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -103,17 +108,17 @@ impl Serialize for SimplifiedGrammar {
 }
 
 impl ValidatedGrammar {
-    pub fn simplify_grammar(mut self) -> SimplifiedGrammar {
+    pub fn simplify_grammar(mut self, config: CompressionConfig) -> SimplifiedGrammar {
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
         let (expressions, mut special_nonterminals) =
             Self::flatten_nested_rules_with_nonterminals(expressions, &mut self.interned_strings);
         let expressions = Self::flatten_operators(expressions);
         let expressions = Self::group_same_lhs_together(expressions);
-        let expressions =
-            Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
         let expressions = Self::deduplicate_alternations(expressions);
         let expressions =
             Self::remove_unit_production(expressions, self.start_symbol, &mut special_nonterminals);
+        let expressions =
+            Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
         let expressions = Self::expand_special_nonterminals(
             expressions,
             special_nonterminals,
@@ -124,12 +129,20 @@ impl ValidatedGrammar {
             Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
         let expressions =
             Self::remove_unit_production(expressions, self.start_symbol, &mut FxHashMap::default());
-
+        let expressions =
+            Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
         let expressions = Self::remove_fixed_point_production(expressions);
+        let expressions = Self::compress_terminals(
+            expressions,
+            &mut self.interned_strings,
+            config,
+            &mut self.id_to_regex,
+        );
+        let interned_strings = Self::compact_interned_strings(self.interned_strings);
         SimplifiedGrammar {
             expressions,
             start_symbol: self.start_symbol,
-            interned_strings: self.interned_strings,
+            interned_strings,
         }
     }
 
@@ -932,6 +945,89 @@ impl ValidatedGrammar {
             })
             .collect()
     }
+
+    fn compress_terminals(
+        rules: FxHashMap<SymbolU32, Rhs>,
+        interned_strings: &mut InternedStrings,
+        config: CompressionConfig,
+        id_to_regex: &mut FxHashMap<SymbolU32, FiniteStateAutomaton>,
+    ) -> FxHashMap<SymbolU32, Rhs> {
+        rules
+            .into_iter()
+            .map(|(lhs, rhs)| {
+                let (terminals, mut remaining): (Vec<_>, Vec<_>) =
+                    rhs.alternations.into_iter().partition(|x| {
+                        matches!(
+                            x.concatenations.as_slice(),
+                            [OperatorFlattenedNode::Terminal(_)]
+                        )
+                    });
+                let alternations = if terminals.len() >= config.min_terminals {
+                    let regex_string = terminals
+                        .iter()
+                        .map(|x| x.concatenations.first().unwrap())
+                        .map(|x| match x {
+                            OperatorFlattenedNode::Terminal(x) => x,
+                            _ => unreachable!(),
+                        })
+                        .map(|x| interned_strings.terminals.resolve(*x).unwrap())
+                        .collect::<Vec<_>>()
+                        .join("|");
+                    let id = interned_strings
+                        .regex_strings
+                        .get(&regex_string)
+                        .unwrap_or_else(|| match &config.regex_config {
+                            FiniteStateAutomatonConfig::Dfa(config) => {
+                                let dfa = dfa::dense::Builder::new()
+                                    .configure(config.clone())
+                                    .build(&regex_string)
+                                    .unwrap();
+                                let id = interned_strings.regex_strings.get_or_intern(regex_string);
+                                id_to_regex.insert(id, FiniteStateAutomaton::Dfa(dfa));
+                                id
+                            }
+                            FiniteStateAutomatonConfig::LazyDFA(config) => {
+                                let dfa = hybrid::dfa::Builder::new()
+                                    .configure(config.clone())
+                                    .build(&regex_string)
+                                    .unwrap();
+                                let id = interned_strings.regex_strings.get_or_intern(regex_string);
+                                id_to_regex.insert(id, FiniteStateAutomaton::LazyDFA(dfa));
+                                id
+                            }
+                        });
+                    remaining.push(Alternation {
+                        concatenations: vec![OperatorFlattenedNode::RegexString(id)],
+                    });
+                    remaining
+                } else {
+                    remaining.extend(terminals);
+                    remaining
+                };
+                (lhs, Rhs { alternations })
+            })
+            .collect()
+    }
+
+    fn compact_interned_strings(interned: InternedStrings) -> InternedStrings {
+        let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
+        let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
+        let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
+        for (_, x) in interned.nonterminals.into_iter() {
+            interned_nonterminals.get_or_intern(x);
+        }
+        for (_, x) in interned.terminals.into_iter() {
+            interned_terminals.get_or_intern(x);
+        }
+        for (_, x) in interned.regex_strings.into_iter() {
+            interned_regexes.get_or_intern(x);
+        }
+        InternedStrings {
+            nonterminals: interned_nonterminals,
+            terminals: interned_terminals,
+            regex_strings: interned_regexes,
+        }
+    }
 }
 
 impl Grammar {
@@ -1151,7 +1247,7 @@ mod test {
     use insta::assert_snapshot;
     use regex_automata::dfa::dense::Config;
 
-    use crate::get_grammar;
+    use crate::{get_grammar, grammar::CompressionConfig};
     #[test]
     #[should_panic]
     fn undefined_nonterminal() {
@@ -1239,7 +1335,10 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar();
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
         assert_snapshot!(result)
     }
 
@@ -1257,7 +1356,10 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar();
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
         assert_snapshot!(result)
     }
 
@@ -1274,7 +1376,10 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar();
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
         assert_snapshot!(result)
     }
 
@@ -1291,7 +1396,10 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar();
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
         assert_snapshot!(result)
     }
 
@@ -1308,7 +1416,10 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar();
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
         assert_snapshot!(result)
     }
 
@@ -1325,7 +1436,30 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar();
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
+        assert_snapshot!(result)
+    }
+
+    #[test]
+    fn simplify_grammar9() {
+        let source = r#"
+            S ::= 'c'|'a'|'b'|'d';
+            A ::= #"";
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(CompressionConfig {
+                min_terminals: 2,
+                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            });
         assert_snapshot!(result)
     }
 }
