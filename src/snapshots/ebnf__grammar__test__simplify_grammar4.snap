@@ -2,6 +2,7 @@
 source: src/grammar.rs
 expression: result
 ---
+start_symbol: S
 S_repeat1_0 ::= S_repeat1_0_group_0_repeat0_0 | S_repeat1_0 S_repeat1_0_group_0_repeat0_0;
 S ::= S_repeat1_0;
 S_repeat1_0_group_0_repeat0_0 ::= S_repeat1_0_group_0_repeat0_0 'cd' | 'cd';

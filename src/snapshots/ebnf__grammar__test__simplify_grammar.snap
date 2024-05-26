@@ -2,6 +2,7 @@
 source: src/grammar.rs
 expression: result
 ---
+start_symbol: S
 B_optional_0_group_0 ::= 'a' B_optional_0_group_0 | 'a';
 S ::= 'jk' A | 'ab' S | 'ef' S_repeat0_0 | #"abc|ef|ab";
 S_repeat0_0 ::= S_repeat0_0 B_optional_0_group_0 | B_optional_0_group_0;

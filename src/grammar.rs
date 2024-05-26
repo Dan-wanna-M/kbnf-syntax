@@ -1,4 +1,7 @@
-use std::{fmt::Display, iter::zip};
+use std::{
+    fmt::{Display, Write},
+    iter::zip,
+};
 
 use alloc::vec::Vec;
 
@@ -48,6 +51,13 @@ pub struct SimplifiedGrammar {
 impl Display for SimplifiedGrammar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut buffer = String::new();
+        buffer.push_str(&format!(
+            "start_symbol: {}\n",
+            self.interned_strings
+                .nonterminals
+                .resolve(self.start_symbol)
+                .unwrap()
+        ));
         for (lhs, rhs) in self.expressions.iter().enumerate() {
             let lhs = self
                 .interned_strings

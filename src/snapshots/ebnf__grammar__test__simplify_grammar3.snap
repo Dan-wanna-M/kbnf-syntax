@@ -2,4 +2,5 @@
 source: src/grammar.rs
 expression: result
 ---
+start_symbol: S
 S ::= #"a|aaa|aaaa|aa|aaaaa";
