@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Display, Write},
-    iter::zip,
-};
+use std::{fmt::Display, iter::zip};
 
 use alloc::vec::Vec;
 
