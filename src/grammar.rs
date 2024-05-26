@@ -139,11 +139,15 @@ impl ValidatedGrammar {
             config,
             &mut self.id_to_regex,
         );
-        let (interned_strings, id_to_regexes, expressions) =
-            Self::compact_interned(expressions, self.interned_strings, self.id_to_regex);
+        let (interned_strings, id_to_regexes, expressions, start_symbol) = Self::compact_interned(
+            self.start_symbol,
+            expressions,
+            self.interned_strings,
+            self.id_to_regex,
+        );
         SimplifiedGrammar {
             expressions,
-            start_symbol: self.start_symbol,
+            start_symbol,
             interned_strings,
             id_to_regex: id_to_regexes,
         }
@@ -1013,19 +1017,27 @@ impl ValidatedGrammar {
     }
 
     fn compact_interned(
+        mut start_symbol: SymbolU32,
         rules: FxHashMap<SymbolU32, Rhs>,
         interned: InternedStrings,
         mut id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
-    ) -> (InternedStrings, Vec<FiniteStateAutomaton>, Vec<Rhs>) {
+    ) -> (
+        InternedStrings,
+        Vec<FiniteStateAutomaton>,
+        Vec<Rhs>,
+        SymbolU32,
+    ) {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
         let mut new_rules: Vec<Rhs> = Vec::with_capacity(rules.len());
-
         for (lhs, rhs) in rules.into_iter() {
             let id =
                 interned_nonterminals.get_or_intern(interned.nonterminals.resolve(lhs).unwrap());
+            if lhs == start_symbol {
+                start_symbol = id;
+            }
             assert!(id.to_usize() == new_rules.len());
             new_rules.push(rhs);
         }
@@ -1075,6 +1087,7 @@ impl ValidatedGrammar {
             },
             new_id_to_regex,
             new_rules,
+            start_symbol,
         )
     }
 }
