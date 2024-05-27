@@ -23,7 +23,7 @@ pub struct Grammar {
     pub expressions: Vec<ExpressionWithID>,
     pub interned_strings: InternedStrings,
 }
-
+#[derive(Debug, Clone)]
 pub struct CompressionConfig {
     pub min_terminals: usize,
     pub regex_config: FiniteStateAutomatonConfig,
