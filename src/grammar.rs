@@ -46,6 +46,7 @@ pub struct SimplifiedGrammar {
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
     pub id_to_regex: Vec<FiniteStateAutomaton>,
+    pub id_to_excepted: Vec<FiniteStateAutomaton>,
 }
 
 impl Display for SimplifiedGrammar {
@@ -154,7 +155,7 @@ impl ValidatedGrammar {
             excepted_config,
             &mut self.id_to_excepted,
         );
-        let (interned_strings, id_to_regexes, expressions, start_symbol) = Self::compact_interned(
+        let (interned_strings, id_to_regexes, expressions, start_symbol,id_to_excepted) = Self::compact_interned(
             self.start_symbol,
             expressions,
             self.interned_strings,
@@ -167,6 +168,7 @@ impl ValidatedGrammar {
             start_symbol,
             interned_strings,
             id_to_regex: id_to_regexes,
+            id_to_excepted,
         }
     }
 
@@ -1108,6 +1110,7 @@ impl ValidatedGrammar {
         Vec<FiniteStateAutomaton>,
         Vec<FinalRhs>,
         SymbolU32,
+        Vec<FiniteStateAutomaton>,
     ) {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
@@ -1170,6 +1173,7 @@ impl ValidatedGrammar {
             new_id_to_regex,
             new_rules,
             start_symbol,
+            new_id_to_excepteds
         )
     }
 }
