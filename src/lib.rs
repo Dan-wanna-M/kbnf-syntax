@@ -58,6 +58,7 @@ pub struct InternedStrings {
     pub nonterminals: StringInterner<StringBackend<SymbolU32>>,
     pub terminals: StringInterner<StringBackend<SymbolU32>>,
     pub regex_strings: StringInterner<StringBackend<SymbolU32>>,
+    pub excepteds: StringInterner<StringBackend<SymbolU32>>,
 }
 
 /// Get and parse EBNF grammar source into [Grammar], returns [Err] when given grammar is invalid.
@@ -171,6 +172,7 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
             nonterminals,
             terminals,
             regex_strings,
+            excepteds: StringInterner::<StringBackend<SymbolU32>>::new(), // It will be filled after semantic checks
         },
         new_expressions.into_iter().map(|(lhs, rhs)| ExpressionWithID { lhs, rhs }).collect(),
     )

@@ -47,6 +47,14 @@ pub enum OperatorFlattenedNode {
     Nonterminal(SymbolU32),
     EXCEPT(ExceptedWithID, Option<usize>),
 }
+#[allow(clippy::upper_case_acronyms)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
+pub enum FinalNode {
+    Terminal(SymbolU32),
+    RegexString(SymbolU32),
+    Nonterminal(SymbolU32),
+    EXCEPT(SymbolU32, Option<usize>),
+}
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Rhs {
     pub alternations: Vec<Alternation>,
@@ -54,6 +62,14 @@ pub struct Rhs {
 #[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Alternation {
     pub concatenations: Vec<OperatorFlattenedNode>,
+}
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct FinalRhs {
+    pub alternations: Vec<FinalAlternation>,
+}
+#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
+pub struct FinalAlternation {
+    pub concatenations: Vec<FinalNode>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub enum Excepted {

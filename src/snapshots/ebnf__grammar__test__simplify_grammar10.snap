@@ -1,0 +1,7 @@
+---
+source: src/grammar.rs
+expression: result
+---
+start_symbol: S
+S ::= except!(#'c',10) | except!(#'a|B|qa') | except!(#'c');
+A ::= #"a|B|qa";

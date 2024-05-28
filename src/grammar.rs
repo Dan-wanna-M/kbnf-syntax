@@ -12,7 +12,9 @@ use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner,
 
 use crate::{
     expression::ExpressionWithID,
-    node::{Alternation, ExceptedWithID, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs},
+    node::{
+        Alternation, ExceptedWithID, FinalAlternation, FinalNode, FinalRhs, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs,
+    },
     regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     semantic_error::SemanticError,
     InternedStrings, RegexExtKind, SymbolKind,
@@ -35,11 +37,12 @@ pub struct ValidatedGrammar {
     pub interned_strings: InternedStrings,
     pub start_symbol: SymbolU32,
     pub id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
+    pub id_to_excepted: FxHashMap<SymbolU32, FiniteStateAutomaton>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SimplifiedGrammar {
-    pub expressions: Vec<Rhs>,
+    pub expressions: Vec<FinalRhs>,
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
     pub id_to_regex: Vec<FiniteStateAutomaton>,
@@ -66,31 +69,24 @@ impl Display for SimplifiedGrammar {
             for (j, alternation) in rhs.alternations.iter().enumerate() {
                 for (i, concatenation) in alternation.concatenations.iter().enumerate() {
                     match concatenation {
-                        OperatorFlattenedNode::Terminal(value) => {
+                        FinalNode::Terminal(value) => {
                             let value = self.interned_strings.terminals.resolve(*value).unwrap();
                             buffer.push_str(&format!("'{}'", value));
                         }
-                        OperatorFlattenedNode::RegexString(value) => {
+                        FinalNode::RegexString(value) => {
                             let value =
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
                             buffer.push_str(&format!("#\"{}\"", value));
                         }
-                        OperatorFlattenedNode::Nonterminal(value) => {
+                        FinalNode::Nonterminal(value) => {
                             let value = self.interned_strings.nonterminals.resolve(*value).unwrap();
                             buffer.push_str(value);
                         }
-                        OperatorFlattenedNode::EXCEPT(excepted, _) => match excepted {
-                            ExceptedWithID::Terminal(value) => {
-                                let value =
-                                    self.interned_strings.terminals.resolve(*value).unwrap();
-                                buffer.push_str(&format!("except!({})", value));
-                            }
-                            ExceptedWithID::Nonterminal(value) => {
-                                let value =
-                                    self.interned_strings.nonterminals.resolve(*value).unwrap();
-                                buffer.push_str(&format!("except!({})", value));
-                            }
-                        },
+                        FinalNode::EXCEPT(excepted, r) => {
+                            let value = self.interned_strings.excepteds.resolve(*excepted).unwrap();
+                            let r = r.map(|r| format!(",{}", r)).unwrap_or_default();
+                            buffer.push_str(&format!("except!(#'{}'{r})", value));
+                        }
                     }
                     if i + 1 < alternation.concatenations.len() {
                         buffer.push(' ');
@@ -116,7 +112,11 @@ impl Serialize for SimplifiedGrammar {
 }
 
 impl ValidatedGrammar {
-    pub fn simplify_grammar(mut self, config: CompressionConfig) -> SimplifiedGrammar {
+    pub fn simplify_grammar(
+        mut self,
+        config: CompressionConfig,
+        excepted_config: FiniteStateAutomatonConfig,
+    ) -> SimplifiedGrammar {
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
         let (expressions, mut special_nonterminals) =
             Self::flatten_nested_rules_with_nonterminals(expressions, &mut self.interned_strings);
@@ -127,12 +127,14 @@ impl ValidatedGrammar {
             Self::remove_unit_production(expressions, self.start_symbol, &mut special_nonterminals);
         let expressions =
             Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
+
         let expressions = Self::expand_special_nonterminals(
             expressions,
             special_nonterminals,
             &mut self.interned_strings,
         );
         let expressions = Self::merge_identical_rhs_across_nonterminals(expressions);
+
         let expressions =
             Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
         let expressions =
@@ -146,12 +148,20 @@ impl ValidatedGrammar {
             config,
             &mut self.id_to_regex,
         );
+        let expressions = Self::compile_excepteds(
+            expressions,
+            &mut self.interned_strings,
+            excepted_config,
+            &mut self.id_to_excepted,
+        );
         let (interned_strings, id_to_regexes, expressions, start_symbol) = Self::compact_interned(
             self.start_symbol,
             expressions,
             self.interned_strings,
             self.id_to_regex,
+            self.id_to_excepted,
         );
+
         SimplifiedGrammar {
             expressions,
             start_symbol,
@@ -641,23 +651,6 @@ impl ValidatedGrammar {
                             &mut stack,
                             special_nonterminals,
                         );
-                    } else if let &OperatorFlattenedNode::EXCEPT(
-                        ExceptedWithID::Nonterminal(nonterminal),
-                        _,
-                    ) = c
-                    {
-                        if visited.contains(&nonterminal) {
-                            continue;
-                        }
-                        update_nonterminal(
-                            &rules,
-                            &OperatorFlattenedNode::Nonterminal(nonterminal),
-                            nonterminal,
-                            &mut visited,
-                            &mut chains,
-                            &mut stack,
-                            special_nonterminals,
-                        );
                     }
                 }
             }
@@ -977,16 +970,7 @@ impl ValidatedGrammar {
                         )
                     });
                 let alternations = if terminals.len() >= config.min_terminals {
-                    let regex_string = terminals
-                        .iter()
-                        .map(|x| x.concatenations.first().unwrap())
-                        .map(|x| match x {
-                            OperatorFlattenedNode::Terminal(x) => x,
-                            _ => unreachable!(),
-                        })
-                        .map(|x| interned_strings.terminals.resolve(*x).unwrap())
-                        .collect::<Vec<_>>()
-                        .join("|");
+                    let regex_string = from_terminals_to_regex_string(&terminals, interned_strings);
                     let id = interned_strings
                         .regex_strings
                         .get(&regex_string)
@@ -1023,22 +1007,115 @@ impl ValidatedGrammar {
             .collect()
     }
 
+    fn compile_excepteds(
+        rules: FxHashMap<SymbolU32, Rhs>,
+        interned_strings: &mut InternedStrings,
+        config: FiniteStateAutomatonConfig,
+        id_to_excepteds: &mut FxHashMap<SymbolU32, FiniteStateAutomaton>,
+    ) -> FxHashMap<SymbolU32, FinalRhs> {
+        rules
+            .clone()
+            .into_iter()
+            .map(|(lhs, rhs)| {
+                let alternations = rhs
+                    .alternations
+                    .into_iter()
+                    .map(|a| {
+                        let mut concatenations: Vec<FinalNode> = vec![];
+                        for c in a.concatenations {
+                            let mut regex_string = String::new();
+                            match c {
+                                OperatorFlattenedNode::EXCEPT(excepted, x) => {
+                                    match excepted {
+                                        ExceptedWithID::Terminal(x) => {
+                                            let string =
+                                                interned_strings.terminals.resolve(x).unwrap();
+                                            regex_string.push_str(string);
+                                        }
+                                        ExceptedWithID::Nonterminal(x) => {
+                                            let terminals = rules.get(&x).unwrap();
+                                            if terminals.alternations.len() == 1 {
+                                                if let OperatorFlattenedNode::RegexString(x) =
+                                                    terminals
+                                                        .alternations
+                                                        .first()
+                                                        .unwrap()
+                                                        .concatenations
+                                                        .first()
+                                                        .unwrap()
+                                                {
+                                                    regex_string.push_str(
+                                                        interned_strings
+                                                            .regex_strings
+                                                            .resolve(*x)
+                                                            .unwrap(),
+                                                    )
+                                                }
+                                                else {
+                                                    regex_string.push_str(
+                                                        &from_terminals_to_regex_string(
+                                                            &terminals.alternations,
+                                                            interned_strings,
+                                                        ),
+                                                    )
+                                                }
+                                            } else {
+                                                regex_string.push_str(
+                                                    &from_terminals_to_regex_string(
+                                                        &terminals.alternations,
+                                                        interned_strings,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    }
+                                    let id =
+                                        interned_strings.excepteds.get_or_intern(&regex_string);
+                                    id_to_excepteds.insert(
+                                        id,
+                                        compile_one_regex_string(&regex_string, config.clone())
+                                            .unwrap(),
+                                    );
+                                    concatenations.push(FinalNode::EXCEPT(id, x));
+                                }
+                                OperatorFlattenedNode::Nonterminal(x) => {
+                                    concatenations.push(FinalNode::Nonterminal(x));
+                                }
+                                OperatorFlattenedNode::Terminal(x) => {
+                                    concatenations.push(FinalNode::Terminal(x));
+                                }
+                                OperatorFlattenedNode::RegexString(x) => {
+                                    concatenations.push(FinalNode::RegexString(x));
+                                }
+                            }
+                        }
+                        FinalAlternation { concatenations }
+                    })
+                    .collect();
+                (lhs, FinalRhs { alternations })
+            })
+            .collect()
+    }
+
     fn compact_interned(
         mut start_symbol: SymbolU32,
-        rules: FxHashMap<SymbolU32, Rhs>,
+        rules: FxHashMap<SymbolU32, FinalRhs>,
         interned: InternedStrings,
-        mut id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
+        id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
+        id_to_excepteds: FxHashMap<SymbolU32, FiniteStateAutomaton>,
     ) -> (
         InternedStrings,
         Vec<FiniteStateAutomaton>,
-        Vec<Rhs>,
+        Vec<FinalRhs>,
         SymbolU32,
     ) {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
+        let mut interned_excepteds: StringInterner<StringBackend> = StringInterner::default();
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
-        let mut new_rules: Vec<Rhs> = Vec::with_capacity(rules.len());
+        let mut new_id_to_excepteds = Vec::with_capacity(id_to_excepteds.len());
+        let mut new_rules: Vec<_> = Vec::with_capacity(rules.len());
         for (lhs, rhs) in rules.into_iter() {
             let id =
                 interned_nonterminals.get_or_intern(interned.nonterminals.resolve(lhs).unwrap());
@@ -1049,38 +1126,35 @@ impl ValidatedGrammar {
             new_rules.push(rhs);
         }
         for rhs in new_rules.iter_mut() {
-            for Alternation { concatenations } in &mut rhs.alternations {
+            for FinalAlternation { concatenations } in &mut rhs.alternations {
                 for concatenation in concatenations {
                     match concatenation {
-                        OperatorFlattenedNode::Nonterminal(nonterminal) => {
+                        FinalNode::Nonterminal(nonterminal) => {
                             *nonterminal = interned_nonterminals.get_or_intern(
                                 interned.nonterminals.resolve(*nonterminal).unwrap(),
                             );
                         }
-                        OperatorFlattenedNode::Terminal(terminal) => {
+                        FinalNode::Terminal(terminal) => {
                             *terminal = interned_terminals
                                 .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
                         }
-                        OperatorFlattenedNode::RegexString(regex) => {
+                        FinalNode::RegexString(regex) => {
                             let new_id = interned_regexes
                                 .get_or_intern(interned.regex_strings.resolve(*regex).unwrap());
-                            assert!(new_id.to_usize() == new_id_to_regex.len());
-                            new_id_to_regex.push(id_to_regex.remove(regex).unwrap().clone());
+                            if new_id.to_usize() == new_id_to_regex.len() {
+                                new_id_to_regex.push(id_to_regex.get(regex).unwrap().clone());
+                            }
                             *regex = new_id;
-
                             // Should not fail since StringBackend is contiguous.
                         }
-                        OperatorFlattenedNode::EXCEPT(
-                            ExceptedWithID::Nonterminal(nonterminal),
-                            _,
-                        ) => {
-                            *nonterminal = interned_nonterminals.get_or_intern(
-                                interned.nonterminals.resolve(*nonterminal).unwrap(),
-                            );
-                        }
-                        OperatorFlattenedNode::EXCEPT(ExceptedWithID::Terminal(terminal), _) => {
-                            *terminal = interned_terminals
-                                .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
+                        FinalNode::EXCEPT(excepted, _) => {
+                            let new_id = interned_excepteds
+                                .get_or_intern(interned.excepteds.resolve(*excepted).unwrap());
+                            if new_id.to_usize() == new_id_to_excepteds.len() {
+                                new_id_to_excepteds
+                                    .push(id_to_excepteds.get(excepted).unwrap().clone());
+                            }
+                            *excepted = new_id;
                         }
                     }
                 }
@@ -1091,6 +1165,7 @@ impl ValidatedGrammar {
                 nonterminals: interned_nonterminals,
                 terminals: interned_terminals,
                 regex_strings: interned_regexes,
+                excepteds: interned_excepteds,
             },
             new_id_to_regex,
             new_rules,
@@ -1118,6 +1193,7 @@ impl Grammar {
             start_symbol: start,
             interned_strings: self.interned_strings,
             id_to_regex: regexes,
+            id_to_excepted: FxHashMap::default(),
         })
     }
 
@@ -1285,22 +1361,8 @@ impl Grammar {
     ) -> Result<FxHashMap<SymbolU32, FiniteStateAutomaton>, Box<SemanticError>> {
         let mut regexes = FxHashMap::default();
         for (id, regex_string) in &self.interned_strings.regex_strings {
-            let regex: Result<FiniteStateAutomaton, SemanticError> = match config {
-                FiniteStateAutomatonConfig::Dfa(ref config) => {
-                    regex_automata::dfa::dense::Builder::new()
-                        .configure(config.clone())
-                        .build(regex_string)
-                        .map(FiniteStateAutomaton::Dfa)
-                        .map_err(SemanticError::DfaRegexBuildError)
-                }
-                FiniteStateAutomatonConfig::LazyDFA(ref config) => {
-                    regex_automata::hybrid::dfa::Builder::new()
-                        .configure(config.clone())
-                        .build(regex_string)
-                        .map(FiniteStateAutomaton::LazyDFA)
-                        .map_err(SemanticError::LazyDfaRegexBuildError)
-                }
-            };
+            let regex: Result<FiniteStateAutomaton, SemanticError> =
+                compile_one_regex_string(regex_string, config.clone());
             let regex = match regex {
                 Ok(x) => x,
                 Err(e) => return Err(Box::new(e)),
@@ -1309,6 +1371,43 @@ impl Grammar {
         }
         Ok(regexes)
     }
+}
+#[allow(clippy::result_large_err)]
+fn compile_one_regex_string(
+    regex_string: &str,
+    config: FiniteStateAutomatonConfig,
+) -> Result<FiniteStateAutomaton, SemanticError> {
+    let regex: Result<FiniteStateAutomaton, SemanticError> = match config {
+        FiniteStateAutomatonConfig::Dfa(ref config) => regex_automata::dfa::dense::Builder::new()
+            .configure(config.clone())
+            .build(regex_string)
+            .map(FiniteStateAutomaton::Dfa)
+            .map_err(SemanticError::DfaRegexBuildError),
+        FiniteStateAutomatonConfig::LazyDFA(ref config) => {
+            regex_automata::hybrid::dfa::Builder::new()
+                .configure(config.clone())
+                .build(regex_string)
+                .map(FiniteStateAutomaton::LazyDFA)
+                .map_err(SemanticError::LazyDfaRegexBuildError)
+        }
+    };
+    regex
+}
+
+fn from_terminals_to_regex_string(
+    terminals: &[Alternation],
+    interned_strings: &InternedStrings,
+) -> String {
+    terminals
+        .iter()
+        .map(|x| x.concatenations.first().unwrap())
+        .map(|x| match x {
+            OperatorFlattenedNode::Terminal(x) => x,
+            _ => unreachable!(),
+        })
+        .map(|x| interned_strings.terminals.resolve(*x).unwrap())
+        .collect::<Vec<_>>()
+        .join("|")
 }
 
 #[cfg(test)]
@@ -1392,7 +1491,7 @@ mod test {
     #[test]
     fn simplify_grammar() {
         let source = r#"
-            S ::= 'ab'S? | 'jk'(((A))) | 'ef'(B)*| 'a''b''c'|'abc';
+            S ::= 'ab'S? | 'jk'(((A))) | 'ef'(B)*| 'a''b''c'|'abc'|except!('c',10)|except!(C);
             A ::= 'cd'|'cd'|A'c'|'Ac';
             B ::= ('a'B)?;
             C ::= 'dc';
@@ -1404,10 +1503,13 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         assert_snapshot!(result)
     }
 
@@ -1425,10 +1527,13 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         assert_snapshot!(result)
     }
 
@@ -1445,10 +1550,13 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         assert_snapshot!(result)
     }
 
@@ -1465,10 +1573,13 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         assert_snapshot!(result)
     }
 
@@ -1485,10 +1596,13 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         assert_snapshot!(result)
     }
 
@@ -1505,10 +1619,13 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         println!("{:?}", result);
         assert_snapshot!(result)
     }
@@ -1526,10 +1643,35 @@ mod test {
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             )
             .unwrap()
-            .simplify_grammar(CompressionConfig {
-                min_terminals: 2,
-                regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            });
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
+        assert_snapshot!(result)
+    }
+    #[test]
+    fn simplify_grammar10() {
+        let source = r#"
+            S ::= except!('c')|except!('c',10)|except!(A);
+            A ::= 'a'|'B'|'qa';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
         assert_snapshot!(result)
     }
 }
