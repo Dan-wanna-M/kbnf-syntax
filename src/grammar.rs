@@ -1006,8 +1006,7 @@ impl ValidatedGrammar {
                                     .build(&regex_string)
                                     .unwrap();
                                 let id = interned_strings.regex_strings.get_or_intern(regex_string);
-                                let cache = dfa.create_cache();
-                                id_to_regex.insert(id, FiniteStateAutomaton::LazyDFA(dfa, cache));
+                                id_to_regex.insert(id, FiniteStateAutomaton::LazyDFA(dfa));
                                 id
                             }
                         });
@@ -1298,10 +1297,7 @@ impl Grammar {
                     regex_automata::hybrid::dfa::Builder::new()
                         .configure(config.clone())
                         .build(regex_string)
-                        .map(|dfa| {
-                            let cache = dfa.create_cache();
-                            FiniteStateAutomaton::LazyDFA(dfa, cache)
-                        })
+                        .map(FiniteStateAutomaton::LazyDFA)
                         .map_err(SemanticError::LazyDfaRegexBuildError)
                 }
             };
