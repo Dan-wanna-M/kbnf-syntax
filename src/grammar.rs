@@ -661,7 +661,7 @@ impl ValidatedGrammar {
         rules
             .into_iter()
             .filter_map(|(lhs, rhs)| {
-                if chains.contains_key(&lhs) {
+                if chains.contains_key(&lhs)&&lhs!=start_nonterminal {
                     None
                 } else {
                     Some((
@@ -1479,6 +1479,22 @@ mod test {
     }
     #[test]
     #[should_panic]
+    fn invalid_excepted_nonterminal2() {
+        let source = r#"
+             except ::= except!(A);
+             A ::= B;
+             B ::= 'c';
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "A",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap();
+    }
+    #[test]
+    #[should_panic]
     fn invalid_excepted_terminal() {
         let source = r#"
              except ::= except!('');
@@ -1661,6 +1677,27 @@ mod test {
         let source = r#"
             S ::= except!('c')|except!('c',10)|except!(A);
             A ::= 'a'|'B'|'qa';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
+        assert_snapshot!(result)
+    }
+    #[test]
+    fn simplify_grammar11() {
+        let source = r#"
+            S ::= 'a';
         "#;
         let result = get_grammar(source)
             .unwrap()
