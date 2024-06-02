@@ -1,6 +1,5 @@
 ---
 source: src/grammar.rs
-assertion_line: 1716
 expression: result
 ---
 start_symbol: S

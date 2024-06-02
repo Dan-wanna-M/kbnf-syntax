@@ -1,0 +1,5 @@
+---
+source: src/grammar.rs
+expression: result
+---
+start_symbol: None

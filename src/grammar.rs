@@ -13,7 +13,8 @@ use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner,
 use crate::{
     expression::ExpressionWithID,
     node::{
-        Alternation, ExceptedWithID, FinalAlternation, FinalNode, FinalRhs, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs,
+        Alternation, ExceptedWithID, FinalAlternation, FinalNode, FinalRhs, NoNestingNode,
+        NodeWithID, OperatorFlattenedNode, Rhs,
     },
     regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     semantic_error::SemanticError,
@@ -57,7 +58,7 @@ impl Display for SimplifiedGrammar {
             self.interned_strings
                 .nonterminals
                 .resolve(self.start_symbol)
-                .unwrap()
+                .unwrap_or("None")
         ));
         for (lhs, rhs) in self.expressions.iter().enumerate() {
             let lhs = self
@@ -126,16 +127,15 @@ impl ValidatedGrammar {
         let expressions = Self::deduplicate_alternations(expressions);
         let expressions =
             Self::remove_unit_production(expressions, self.start_symbol, &mut special_nonterminals);
+
         let expressions =
             Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
-
         let expressions = Self::expand_special_nonterminals(
             expressions,
             special_nonterminals,
             &mut self.interned_strings,
         );
         let expressions = Self::merge_identical_rhs_across_nonterminals(expressions);
-
         let expressions =
             Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
         let expressions =
@@ -155,13 +155,14 @@ impl ValidatedGrammar {
             excepted_config,
             &mut self.id_to_excepted,
         );
-        let (interned_strings, id_to_regexes, expressions, start_symbol,id_to_excepted) = Self::compact_interned(
-            self.start_symbol,
-            expressions,
-            self.interned_strings,
-            self.id_to_regex,
-            self.id_to_excepted,
-        );
+        let (interned_strings, id_to_regexes, expressions, start_symbol, id_to_excepted) =
+            Self::compact_interned(
+                self.start_symbol,
+                expressions,
+                self.interned_strings,
+                self.id_to_regex,
+                self.id_to_excepted,
+            );
 
         SimplifiedGrammar {
             expressions,
@@ -549,6 +550,9 @@ impl ValidatedGrammar {
                         {
                             break;
                         }
+                        if next_nonterminal == &last_nonterminal {
+                            break;
+                        }
                         chain.push(node);
                         if let Some(e1) = special_nonterminals.get(&last_nonterminal) {
                             if let Some(e2) = special_nonterminals.get(next_nonterminal) {
@@ -661,7 +665,7 @@ impl ValidatedGrammar {
         rules
             .into_iter()
             .filter_map(|(lhs, rhs)| {
-                if chains.contains_key(&lhs)&&lhs!=start_nonterminal {
+                if chains.contains_key(&lhs) && lhs != start_nonterminal {
                     None
                 } else {
                     Some((
@@ -1052,8 +1056,7 @@ impl ValidatedGrammar {
                                                             .resolve(*x)
                                                             .unwrap(),
                                                     )
-                                                }
-                                                else {
+                                                } else {
                                                     regex_string.push_str(
                                                         &from_terminals_to_regex_string(
                                                             &terminals.alternations,
@@ -1173,7 +1176,7 @@ impl ValidatedGrammar {
             new_id_to_regex,
             new_rules,
             start_symbol,
-            new_id_to_excepteds
+            new_id_to_excepteds,
         )
     }
 }
@@ -1695,9 +1698,51 @@ mod test {
         assert_snapshot!(result)
     }
     #[test]
-    fn simplify_grammar11() {
+    fn unit_production_for_start_symbol() {
         let source = r#"
             S ::= 'a';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
+        assert_snapshot!(result)
+    }
+    #[test]
+    fn empty_grammar() {
+        let source = r#"
+            S ::= '';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            );
+        assert_snapshot!(result)
+    }
+    #[test]
+    fn empty_grammar2() {
+        let source = r#"
+            S ::= S;
         "#;
         let result = get_grammar(source)
             .unwrap()
