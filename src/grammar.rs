@@ -50,6 +50,12 @@ pub struct SimplifiedGrammar {
     pub id_to_excepted: Vec<FiniteStateAutomaton>,
 }
 
+impl SimplifiedGrammar {
+    pub fn is_empty(&self) -> bool {
+        self.expressions.is_empty()
+    }
+}
+
 impl Display for SimplifiedGrammar {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut buffer = String::new();
