@@ -1,4 +1,7 @@
-use std::{fmt::Display, iter::zip};
+use std::{
+    fmt::{Debug, Display},
+    iter::zip,
+};
 
 use alloc::vec::Vec;
 
@@ -41,7 +44,7 @@ pub struct ValidatedGrammar {
     pub id_to_excepted: FxHashMap<SymbolU32, FiniteStateAutomaton>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SimplifiedGrammar {
     pub expressions: Vec<FinalRhs>,
     pub start_symbol: SymbolU32,
@@ -94,6 +97,80 @@ impl Display for SimplifiedGrammar {
                             let value = self.interned_strings.excepteds.resolve(*excepted).unwrap();
                             let r = r.map(|r| format!(",{}", r)).unwrap_or_default();
                             buffer.push_str(&format!("except!(#'{}'{r})", value));
+                        }
+                    }
+                    if i + 1 < alternation.concatenations.len() {
+                        buffer.push(' ');
+                    }
+                }
+                if j + 1 < rhs.alternations.len() {
+                    buffer.push_str(" | ");
+                }
+            }
+            buffer.push_str(";\n");
+        }
+        write!(f, "{}", buffer)
+    }
+}
+
+impl Debug for SimplifiedGrammar {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut buffer = String::new();
+        buffer.push_str(&format!(
+            "start_symbol: {}(ID: {})\n",
+            self.interned_strings
+                .nonterminals
+                .resolve(self.start_symbol)
+                .unwrap_or("None"),
+            self.start_symbol.to_usize()
+        ));
+        for (lhs, rhs) in self.expressions.iter().enumerate() {
+            let lhs = self
+                .interned_strings
+                .nonterminals
+                .resolve(SymbolU32::try_from_usize(lhs).unwrap())
+                .unwrap();
+            buffer.push_str(lhs);
+            buffer.push_str(" ::= ");
+            for (j, alternation) in rhs.alternations.iter().enumerate() {
+                for (i, concatenation) in alternation.concatenations.iter().enumerate() {
+                    match concatenation {
+                        FinalNode::Terminal(value) => {
+                            let terminal = self.interned_strings.terminals.resolve(*value).unwrap();
+                            buffer.push_str(&format!("'{}'(ID: {})", terminal, value.to_usize()));
+                        }
+                        FinalNode::RegexString(value) => {
+                            let regex =
+                                self.interned_strings.regex_strings.resolve(*value).unwrap();
+                            let regex_type = match self.id_to_regex[value.to_usize()] {
+                                FiniteStateAutomaton::Dfa(_) => "DFA",
+                                FiniteStateAutomaton::LazyDFA(_) => "LDFA",
+                            };
+                            buffer.push_str(&format!(
+                                "#\"{}\"(ID: {},type: {})",
+                                regex,
+                                value.to_usize(),
+                                regex_type
+                            ));
+                        }
+                        FinalNode::Nonterminal(value) => {
+                            let nonterminal =
+                                self.interned_strings.nonterminals.resolve(*value).unwrap();
+                            buffer.push_str(&format!("{}(ID: {})", nonterminal, value.to_usize()));
+                        }
+                        FinalNode::EXCEPT(excepted, r) => {
+                            let value = self.interned_strings.excepteds.resolve(*excepted).unwrap();
+                            let r = r.map(|r| format!(",{}", r)).unwrap_or_default();
+                            let regex_type = match self.id_to_excepted[excepted.to_usize()] {
+                                FiniteStateAutomaton::Dfa(_) => "DFA",
+                                FiniteStateAutomaton::LazyDFA(_) => "LDFA",
+                            };
+                            buffer.push_str(&format!(
+                                "except!(#'{}'{r})(ID: {},type: {})",
+                                value,
+                                excepted.to_usize(),
+                                regex_type
+                            ));
                         }
                     }
                     if i + 1 < alternation.concatenations.len() {
@@ -1539,7 +1616,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 
     #[test]
@@ -1563,7 +1640,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 
     #[test]
@@ -1586,7 +1663,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 
     #[test]
@@ -1609,7 +1686,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 
     #[test]
@@ -1632,7 +1709,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 
     #[test]
@@ -1655,8 +1732,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        println!("{:?}", result);
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 
     #[test]
@@ -1679,7 +1755,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
     #[test]
     fn simplify_grammar10() {
@@ -1701,7 +1777,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
     #[test]
     fn unit_production_for_start_symbol() {
@@ -1722,7 +1798,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
     #[test]
     fn empty_grammar() {
@@ -1743,7 +1819,7 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
     #[test]
     fn empty_grammar2() {
@@ -1764,6 +1840,6 @@ mod test {
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
             );
-        assert_snapshot!(result)
+        assert_snapshot!(format!("{:?}", result))
     }
 }

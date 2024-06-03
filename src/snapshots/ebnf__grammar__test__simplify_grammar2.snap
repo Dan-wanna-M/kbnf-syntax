@@ -1,6 +1,6 @@
 ---
 source: src/grammar.rs
-expression: result
+expression: "format!(\"{:?}\", result)"
 ---
-start_symbol: S
-S ::= #"cdcda|cda|cdcdcdcda|cdcdcdcdcda|cdcdcdcdcdcda|cdcdcda";
+start_symbol: S(ID: 0)
+S ::= #"cdcda|cda|cdcdcdcda|cdcdcdcdcda|cdcdcdcdcdcda|cdcdcda"(ID: 0,type: DFA);

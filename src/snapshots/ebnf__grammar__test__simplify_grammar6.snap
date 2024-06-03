@@ -1,6 +1,6 @@
 ---
 source: src/grammar.rs
-expression: result
+expression: "format!(\"{:?}\", result)"
 ---
-start_symbol: S
-S ::= 'cd';
+start_symbol: S(ID: 0)
+S ::= 'cd'(ID: 0);

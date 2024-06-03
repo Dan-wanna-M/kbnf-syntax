@@ -1,5 +1,5 @@
 ---
 source: src/grammar.rs
-expression: result
+expression: "format!(\"{:?}\", result)"
 ---
-start_symbol: None
+start_symbol: None(ID: 0)
