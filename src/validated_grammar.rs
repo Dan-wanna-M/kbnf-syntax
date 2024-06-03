@@ -5,10 +5,16 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner, Symbol};
 
 use crate::{
-    config::CompressionConfig, expression::ExpressionWithID, node::{
+    config::CompressionConfig,
+    expression::ExpressionWithID,
+    node::{
         Alternation, ExceptedWithID, FinalAlternation, FinalNode, FinalRhs, NoNestingNode,
         NodeWithID, OperatorFlattenedNode, Rhs,
-    }, regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig}, simplified_grammar::SimplifiedGrammar, utils::{compile_one_regex_string, from_terminals_to_regex_string}, InternedStrings, RegexExtKind, SymbolKind
+    },
+    regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
+    simplified_grammar::SimplifiedGrammar,
+    utils::{compile_one_regex_string, from_terminals_to_regex_string},
+    InternedStrings, RegexExtKind, SymbolKind,
 };
 
 #[derive(Debug, Clone)]
@@ -25,6 +31,7 @@ impl ValidatedGrammar {
         mut self,
         config: CompressionConfig,
         excepted_config: FiniteStateAutomatonConfig,
+        regex_start_config: &regex_automata::util::start::Config,
     ) -> SimplifiedGrammar {
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
         let (expressions, mut special_nonterminals) =
@@ -43,8 +50,12 @@ impl ValidatedGrammar {
             &mut self.interned_strings,
         );
         let expressions = Self::merge_identical_rhs_across_nonterminals(expressions);
-        let expressions =
-            Self::remove_nullable_rules(expressions, &self.interned_strings, &self.id_to_regex);
+        let expressions = Self::remove_nullable_rules(
+            expressions,
+            &self.interned_strings,
+            &self.id_to_regex,
+            regex_start_config,
+        );
         let expressions =
             Self::remove_unit_production(expressions, self.start_symbol, &mut FxHashMap::default());
         let expressions =
@@ -736,14 +747,19 @@ impl ValidatedGrammar {
         rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
         id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
+        regex_start_config: &regex_automata::util::start::Config,
     ) -> FxHashMap<SymbolU32, Rhs> {
-        #[allow(clippy::unnecessary_fold)]
         fn find_nullable_nonterminals(
             rules: &FxHashMap<SymbolU32, Rhs>,
             interned_strings: &InternedStrings,
             id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
-        ) -> FxHashSet<OperatorFlattenedNode> {
-            let mut nullable_symbols: FxHashSet<OperatorFlattenedNode> = FxHashSet::default();
+            regex_start_config: &regex_automata::util::start::Config,
+        ) -> (
+            FxHashSet<OperatorFlattenedNode>,
+            FxHashSet<OperatorFlattenedNode>,
+        ) {
+            let mut nullable_symbols: FxHashSet<OperatorFlattenedNode> = FxHashSet::default(); // The symbol can produce empty string.
+            let mut null_symbols: FxHashSet<OperatorFlattenedNode> = FxHashSet::default(); // The symbol always produce empty string.
             loop {
                 // In worst case it has O(n^2) complexity. I am curious whether there exists a better solution.
                 let mut updated = false;
@@ -751,31 +767,66 @@ impl ValidatedGrammar {
                     if nullable_symbols.contains(&OperatorFlattenedNode::Nonterminal(*lhs)) {
                         continue;
                     }
-                    if rhs.alternations.iter().fold(false, |result, a| {
-                        result
-                            || a.concatenations
-                                .iter()
-                                .fold(true, |inner_result, c| match c {
-                                    OperatorFlattenedNode::Terminal(value) => {
-                                        if "" == interned_strings.terminals.resolve(*value).unwrap()
-                                        {
+                    let mut null_lhs = true;
+                    let mut nullable_lhs = false;
+                    for a in &rhs.alternations {
+                        let mut nullable = true;
+                        let mut null = true;
+                        for c in &a.concatenations {
+                            if null_symbols.contains(c) {
+                                null &= true;
+                                nullable &= true;
+                            } else if nullable_symbols.contains(c) {
+                                nullable &= true;
+                                null &= false;
+                            } else {
+                                match c {
+                                    OperatorFlattenedNode::Terminal(terminal) => {
+                                        let empty = interned_strings
+                                            .terminals
+                                            .resolve(*terminal)
+                                            .unwrap()
+                                            .is_empty();
+                                        if empty {
+                                            null &= true;
+                                            nullable &= true;
+                                            null_symbols.insert(c.clone());
                                             nullable_symbols.insert(c.clone());
-                                            inner_result & true
                                         } else {
-                                            false
+                                            null &= false;
+                                            nullable &= false;
                                         }
                                     }
-                                    OperatorFlattenedNode::RegexString(value) => {
-                                        if id_to_regex.get(value).unwrap().has_empty() {
+                                    OperatorFlattenedNode::RegexString(regex) => {
+                                        let automaton = id_to_regex.get(regex).unwrap();
+                                        if automaton.only_empty(regex_start_config) {
+                                            null &= true;
+                                            nullable &= true;
+                                            null_symbols.insert(c.clone());
                                             nullable_symbols.insert(c.clone());
-                                            inner_result & true
+                                        } else if automaton.has_empty() {
+                                            nullable &= true;
+                                            nullable_symbols.insert(c.clone());
                                         } else {
-                                            false
+                                            null &= false;
+                                            nullable &= false;
                                         }
                                     }
-                                    _ => nullable_symbols.contains(c),
-                                })
-                    }) {
+                                    _ => {
+                                        null &= false;
+                                        nullable &= false;
+                                    }
+                                }
+                            }
+                        }
+                        null_lhs &= null;
+                        nullable_lhs |= nullable;
+                    }
+                    if null_lhs {
+                        null_symbols.insert(OperatorFlattenedNode::Nonterminal(*lhs));
+                        updated = true;
+                    }
+                    if nullable_lhs {
                         nullable_symbols.insert(OperatorFlattenedNode::Nonterminal(*lhs));
                         updated = true;
                     }
@@ -784,9 +835,10 @@ impl ValidatedGrammar {
                     break;
                 }
             }
-            nullable_symbols
+            (nullable_symbols, null_symbols)
         }
-        let nullable_nodes = find_nullable_nonterminals(&rules, interned_strings, id_to_regex);
+        let (nullable_nodes, null_nodes) =
+            find_nullable_nonterminals(&rules, interned_strings, id_to_regex, regex_start_config);
         let mut new_rules = FxHashMap::default();
         for (lhs, Rhs { alternations }) in rules {
             let mut new_alterations = FxHashSet::default();
@@ -794,25 +846,18 @@ impl ValidatedGrammar {
                 let mut stack = vec![(vec![], concatenations.into_iter())];
                 while let Some((mut prefix, mut iter)) = stack.pop() {
                     if let Some(node) = iter.next() {
-                        if nullable_nodes.contains(&node) {
-                            if matches!(
-                                node,
-                                OperatorFlattenedNode::Terminal(_)
-                                    | OperatorFlattenedNode::RegexString(_)
-                            ) {
-                                stack.push((prefix, iter));
-                            } else {
-                                let without = prefix.clone();
-                                prefix.push(node);
-                                stack.push((prefix, iter.clone()));
-                                stack.push((without, iter));
-                            }
+                        if null_nodes.contains(&node) {
+                            stack.push((prefix, iter));
+                        } else if nullable_nodes.contains(&node) {
+                            let without = prefix.clone();
+                            prefix.push(node);
+                            stack.push((prefix, iter.clone()));
+                            stack.push((without, iter));
                         } else {
                             prefix.push(node);
                             stack.push((prefix, iter));
                         }
                     } else if !prefix.is_empty() {
-                        // prefix.reverse();
                         new_alterations.insert(Alternation {
                             concatenations: prefix,
                         });

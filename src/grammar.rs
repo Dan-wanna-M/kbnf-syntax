@@ -230,7 +230,7 @@ mod test {
     #[should_panic]
     fn undefined_nonterminal() {
         let source = r#"
-             except ::= A;
+            except ::= A;
         "#;
         let _ = get_grammar(source)
             .unwrap()
@@ -335,6 +335,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -359,6 +360,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -382,6 +384,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -405,6 +408,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -428,6 +432,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -451,6 +456,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -474,6 +480,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -496,6 +503,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -517,6 +525,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -538,6 +547,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -559,6 +569,30 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new(),
+            );
+        assert_snapshot!(format!("{:?}", result))
+    }
+
+    #[test]
+    fn empty_grammar3() {
+        let source = r#"
+            S ::= ''|#'^$';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new().anchored(regex_automata::Anchored::Yes),
             );
         assert_snapshot!(format!("{:?}", result))
     }
