@@ -52,6 +52,10 @@ pub mod node;
 mod parser;
 pub mod semantic_error;
 pub mod regex;
+pub mod validated_grammar;
+pub mod simplified_grammar;
+pub mod config;
+pub mod utils;
 
 #[derive(Debug, Clone)]
 pub struct InternedStrings {
