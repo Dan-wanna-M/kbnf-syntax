@@ -105,7 +105,6 @@ impl std::fmt::Debug for SimplifiedGrammar {
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
                             let regex_type = match self.id_to_regex[value.to_usize()] {
                                 FiniteStateAutomaton::Dfa(_) => "DFA",
-                                FiniteStateAutomaton::LazyDFA(_) => "LDFA",
                             };
                             buffer.push_str(&format!(
                                 "#\"{}\"(ID: {},type: {})",
@@ -124,7 +123,6 @@ impl std::fmt::Debug for SimplifiedGrammar {
                             let r = r.map(|r| format!(",{}", r)).unwrap_or_default();
                             let regex_type = match self.id_to_excepted[excepted.to_usize()] {
                                 FiniteStateAutomaton::Dfa(_) => "DFA",
-                                FiniteStateAutomaton::LazyDFA(_) => "LDFA",
                             };
                             buffer.push_str(&format!(
                                 "except!(#'{}'{r})(ID: {},type: {})",

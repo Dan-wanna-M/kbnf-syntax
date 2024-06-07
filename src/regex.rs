@@ -1,17 +1,12 @@
-use regex_automata::{
-    dfa::{self, Automaton},
-    hybrid::{self},
-};
+use regex_automata::dfa::{self, Automaton};
 #[derive(Debug, Clone)]
 pub enum FiniteStateAutomaton {
     Dfa(dfa::dense::DFA<Vec<u32>>),
-    LazyDFA(hybrid::dfa::DFA),
 }
 impl FiniteStateAutomaton {
     pub fn has_empty(&self) -> bool {
         match self {
             Self::Dfa(dfa) => dfa::Automaton::has_empty(&dfa),
-            Self::LazyDFA(dfa) => dfa.get_nfa().has_empty(),
         }
     }
 
@@ -32,33 +27,11 @@ impl FiniteStateAutomaton {
                     dfa.is_dead_state(next_state) || dfa.is_quit_state(next_state)
                 })
             }
-            Self::LazyDFA(dfa) => {
-                let mut cache = dfa.create_cache();
-                let start_state = match dfa.start_state(&mut cache, config) {
-                    Ok(x) => x,
-                    Err(_) => {
-                        return true;
-                    }
-                };
-                let mut flag = true;
-                for byte in 0..=u8::MAX {
-                    let next_state = match dfa.next_state(&mut cache, start_state, byte) {
-                        Ok(x) => x,
-                        Err(_) => return true,
-                    };
-                    if !(next_state.is_dead() || next_state.is_quit()) {
-                        flag = false;
-                        break;
-                    }
-                }
-                flag
-            }
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum FiniteStateAutomatonConfig {
-    Dfa(dfa::dense::Config),
-    LazyDFA(hybrid::dfa::Config),
+    Dfa(dfa::dense::Config)
 }

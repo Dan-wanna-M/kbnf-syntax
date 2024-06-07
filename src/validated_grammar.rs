@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use regex_automata::{dfa, hybrid};
+use regex_automata::dfa;
 use rustc_hash::{FxHashMap, FxHashSet};
 use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner, Symbol};
 
@@ -940,15 +940,6 @@ impl ValidatedGrammar {
                                     .unwrap();
                                 let id = interned_strings.regex_strings.get_or_intern(regex_string);
                                 id_to_regex.insert(id, FiniteStateAutomaton::Dfa(dfa));
-                                id
-                            }
-                            FiniteStateAutomatonConfig::LazyDFA(config) => {
-                                let dfa = hybrid::dfa::Builder::new()
-                                    .configure(config.clone())
-                                    .build(&regex_string)
-                                    .unwrap();
-                                let id = interned_strings.regex_strings.get_or_intern(regex_string);
-                                id_to_regex.insert(id, FiniteStateAutomaton::LazyDFA(dfa));
                                 id
                             }
                         });

@@ -16,13 +16,6 @@ pub fn compile_one_regex_string(
             .build(regex_string)
             .map(FiniteStateAutomaton::Dfa)
             .map_err(SemanticError::DfaRegexBuildError),
-        FiniteStateAutomatonConfig::LazyDFA(ref config) => {
-            regex_automata::hybrid::dfa::Builder::new()
-                .configure(config.clone())
-                .build(regex_string)
-                .map(FiniteStateAutomaton::LazyDFA)
-                .map_err(SemanticError::LazyDfaRegexBuildError)
-        }
     };
     regex
 }
