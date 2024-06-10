@@ -596,4 +596,27 @@ mod test {
             );
         assert_snapshot!(format!("{:?}", result))
     }
+    #[test]
+    fn indirect_right_recursive_grammar()
+    {
+        let source = "start::=A'\n';
+        A::='x'|'x' B;
+        B::='y'|'y' A;";
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "start",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 3,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &regex_automata::util::start::Config::new().anchored(regex_automata::Anchored::Yes),
+            );
+        assert_snapshot!(format!("{:?}", result))
+    }
 }

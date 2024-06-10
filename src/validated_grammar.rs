@@ -33,7 +33,9 @@ impl ValidatedGrammar {
         excepted_config: FiniteStateAutomatonConfig,
         regex_start_config: &regex_automata::util::start::Config,
     ) -> SimplifiedGrammar {
+        println!("{:?}", self.expressions.len());
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
+        println!("{:?}", expressions.len());
         let (expressions, mut special_nonterminals) =
             Self::flatten_nested_rules_with_nonterminals(expressions, &mut self.interned_strings);
         let expressions = Self::flatten_operators(expressions);
@@ -96,42 +98,51 @@ impl ValidatedGrammar {
         start_symbol: SymbolU32,
     ) -> Vec<ExpressionWithID> {
         let mut used_nonterminals = FxHashSet::default();
+        let mut stack = vec![];
         used_nonterminals.insert(start_symbol);
         for ExpressionWithID { lhs, rhs: node } in &expressions {
             if *lhs == start_symbol {
-                let mut stack = vec![node];
-                while let Some(node) = stack.pop() {
-                    match node {
-                        NodeWithID::Terminal(_) => {}
-                        NodeWithID::RegexString(_) => {}
-                        NodeWithID::Nonterminal(nonterminal) => {
-                            used_nonterminals.insert(*nonterminal);
-                        }
-                        NodeWithID::Multiple(nodes) => {
-                            for node in nodes {
-                                stack.push(node);
-                            }
-                        }
-                        NodeWithID::RegexExt(node, _) => {
+                stack.push(node);
+            }
+        }
+        while let Some(node) = stack.pop() {
+            match node {
+                NodeWithID::Terminal(_) => {}
+                NodeWithID::RegexString(_) => {}
+                NodeWithID::Nonterminal(nonterminal) => {
+                    if used_nonterminals.contains(nonterminal){
+                        continue;
+                    }
+                    used_nonterminals.insert(*nonterminal);
+                    for ExpressionWithID { lhs, rhs: node } in &expressions {
+                        if *lhs == *nonterminal{
                             stack.push(node);
-                        }
-                        NodeWithID::Symbol(lhs, _, rhs) => {
-                            stack.push(lhs);
-                            stack.push(rhs);
-                        }
-                        NodeWithID::Group(node) => {
-                            stack.push(node);
-                        }
-                        NodeWithID::EXCEPT(excepted, _) => match excepted {
-                            ExceptedWithID::Terminal(_) => {}
-                            ExceptedWithID::Nonterminal(nonterminal) => {
-                                used_nonterminals.insert(*nonterminal);
-                            }
-                        },
-                        NodeWithID::Unknown => {
-                            unreachable!("Unknown node. This should not happen.")
                         }
                     }
+                }
+                NodeWithID::Multiple(nodes) => {
+                    for node in nodes {
+                        stack.push(node);
+                    }
+                }
+                NodeWithID::RegexExt(node, _) => {
+                    stack.push(node);
+                }
+                NodeWithID::Symbol(lhs, _, rhs) => {
+                    stack.push(lhs);
+                    stack.push(rhs);
+                }
+                NodeWithID::Group(node) => {
+                    stack.push(node);
+                }
+                NodeWithID::EXCEPT(excepted, _) => match excepted {
+                    ExceptedWithID::Terminal(_) => {}
+                    ExceptedWithID::Nonterminal(nonterminal) => {
+                        used_nonterminals.insert(*nonterminal);
+                    }
+                },
+                NodeWithID::Unknown => {
+                    unreachable!("Unknown node. This should not happen.")
                 }
             }
         }
