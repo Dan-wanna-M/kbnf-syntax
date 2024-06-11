@@ -1,6 +1,3 @@
-use std::mem::ManuallyDrop;
-use std::ops::DerefMut;
-
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
@@ -123,7 +120,7 @@ fn parse_nonterminal(input: &str) -> Res<&str, Node> {
 }
 
 fn parse_except(input: &str) -> Res<&str, Node> {
-    let (input, (excepted, number_str)) = preceded(
+    let (input, (mut excepted, number_str)) = preceded(
         tag("except!"),
         delimited(
             complete::multispace0,
@@ -153,28 +150,16 @@ fn parse_except(input: &str) -> Res<&str, Node> {
         input,
         Node::EXCEPT(
             {
-                let mut excepted = ManuallyDrop::new(excepted);
-                let result = match excepted.deref_mut() {
-                    Node::Nonterminal(s) => {
-                        Excepted::Nonterminal(unsafe { (s as *mut String).read() })
-                        // SAFETY:
-                        // - A pointer created from a reference is valid, aligned and points to initialized value
-                        // as long as the reference is valid.
-                        // The ManuallyDrop ensures no double free.
-                    }
-                    Node::Terminal(s) => Excepted::Terminal(unsafe { (s as *mut String).read() }),
-                    // SAFETY:
-                    // - A pointer created from a reference is valid, aligned and points to initialized value
-                    // as long as the reference is valid.
-                    // The ManuallyDrop ensures no double free.
+                match &mut excepted {
+                    Node::Nonterminal(s) => Excepted::Nonterminal(std::mem::take(s)),
+                    Node::Terminal(s) => Excepted::Terminal(std::mem::take(s)),
                     _ => Err(Err::Error(VerboseError {
                         errors: vec![(
                             input,
                             VerboseErrorKind::Context("Expected terminal or nonterminal"),
                         )],
                     }))?,
-                };
-                result
+                }
             },
             number_str.map(|x: &str| x.parse::<usize>().unwrap()),
         ),
