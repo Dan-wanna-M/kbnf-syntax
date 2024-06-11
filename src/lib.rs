@@ -38,7 +38,7 @@
 extern crate alloc;
 extern crate nom;
 extern crate parse_hyperlinks;
-use std::iter::zip;
+use std::{iter::zip, mem};
 
 use expression::{Expression, ExpressionWithID};
 pub use grammar::Grammar;
@@ -46,16 +46,16 @@ use node::{Excepted, ExceptedWithID, NodeWithID};
 pub use node::{Node, RegexExtKind, SymbolKind};
 use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
 
+pub mod config;
 mod expression;
 pub mod grammar;
 pub mod node;
 mod parser;
-pub mod semantic_error;
 pub mod regex;
-pub mod validated_grammar;
+pub mod semantic_error;
 pub mod simplified_grammar;
-pub mod config;
 pub mod utils;
+pub mod validated_grammar;
 
 #[derive(Debug, Clone)]
 pub struct InternedStrings {
@@ -97,16 +97,25 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
         let mut rhs = NodeWithID::Unknown;
         let node = expression.rhs;
         let mut stack = vec![(node, &mut rhs)];
-        while let Some((node, parent)) = stack.pop() {
-            match node {
+        while let Some((mut node, parent)) = stack.pop() {
+            match &mut node {
                 Node::Terminal(terminal) => {
-                    *parent = NodeWithID::Terminal(terminals.get_or_intern(terminal));
+                    *parent = NodeWithID::Terminal(terminals.get_or_intern(&terminal));
+                    // SAFETY: terminal is never used after this point
+                    // and the `mem::forget(node)` ensures we do not double free
+                    unsafe { (terminal as *mut String).drop_in_place() };
                 }
                 Node::RegexString(regex_string) => {
-                    *parent = NodeWithID::RegexString(regex_strings.get_or_intern(regex_string));
+                    *parent = NodeWithID::RegexString(regex_strings.get_or_intern(&regex_string));
+                    // SAFETY: regex_string is never used after this point
+                    // and the `mem::forget(node)` ensures we do not double free
+                    unsafe { (regex_string as *mut String).drop_in_place() };
                 }
                 Node::Nonterminal(nonterminal) => {
-                    *parent = NodeWithID::Nonterminal(nonterminals.get_or_intern(nonterminal));
+                    *parent = NodeWithID::Nonterminal(nonterminals.get_or_intern(&nonterminal));
+                    // SAFETY: nonterminal is never used after this point
+                    // and the `mem::forget(node)` ensures we do not double free
+                    unsafe { (nonterminal as *mut String).drop_in_place() };
                 }
                 Node::Multiple(nodes) => {
                     let mut buffer = Vec::with_capacity(nodes.len());
@@ -114,15 +123,25 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     *parent = NodeWithID::Multiple(buffer);
                     match parent {
                         NodeWithID::Multiple(new_nodes) => {
-                            for (node, new_parent) in zip(nodes.into_iter(), new_nodes.iter_mut()) {
-                                stack.push((node, new_parent));
+                            for (node, new_parent) in zip(nodes.iter_mut(), new_nodes.iter_mut()) {
+                                // SAFETY: node is never used after this point
+                                // and the `mem::forget(node)` after the match ensures we do not double free nodes themselves
+                                stack.push((unsafe { (node as *mut Node).read() }, new_parent));
                             }
+                            while let Some(node) = nodes.pop() {
+                                mem::forget(node);
+                            }
+                            // SAFETY: `mem::forget(node)` after the match ensures we do not double free nodes(the vector)
+                            // and nodes are never used after this point
+                            unsafe { (nodes as *mut Vec<Node>).drop_in_place() };
                         }
                         _ => unreachable!(),
                     }
                 }
                 Node::RegexExt(node, e) => {
-                    *parent = NodeWithID::RegexExt(Box::new(NodeWithID::Unknown), e);
+                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the box
+                    let node = unsafe { (node as *mut Box<Node>).read() };
+                    *parent = NodeWithID::RegexExt(Box::new(NodeWithID::Unknown), *e);
                     match parent {
                         NodeWithID::RegexExt(new_node, _) => {
                             stack.push((*node, new_node));
@@ -131,9 +150,13 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     }
                 }
                 Node::Symbol(lhs, symbol, rhs) => {
+                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the lhs box
+                    let lhs = unsafe { (lhs as *mut Box<Node>).read() };
+                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the rhs box
+                    let rhs = unsafe { (rhs as *mut Box<Node>).read() };
                     *parent = NodeWithID::Symbol(
                         Box::new(NodeWithID::Unknown),
-                        symbol,
+                        *symbol,
                         Box::new(NodeWithID::Unknown),
                     );
                     match parent {
@@ -145,6 +168,8 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     }
                 }
                 Node::Group(node) => {
+                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the box
+                    let node = unsafe { (node as *mut Box<Node>).read() };
                     *parent = NodeWithID::Group(Box::new(NodeWithID::Unknown));
                     match parent {
                         NodeWithID::Group(new_node) => {
@@ -156,18 +181,25 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                 Node::EXCEPT(excepted, o) => match excepted {
                     Excepted::Terminal(terminal) => {
                         *parent = NodeWithID::EXCEPT(
-                            ExceptedWithID::Terminal(terminals.get_or_intern(terminal)),
-                            o,
+                            ExceptedWithID::Terminal(terminals.get_or_intern(&terminal)),
+                            *o,
                         );
+                        // SAFETY: terminal is never used after this point
+                        // and the `mem::forget(node)` ensures we do not double free
+                        unsafe { (terminal as *mut String).drop_in_place() };
                     }
                     Excepted::Nonterminal(nonterminal) => {
                         *parent = NodeWithID::EXCEPT(
-                            ExceptedWithID::Nonterminal(nonterminals.get_or_intern(nonterminal)),
-                            o,
+                            ExceptedWithID::Nonterminal(nonterminals.get_or_intern(&nonterminal)),
+                            *o,
                         );
+                        // SAFETY: nonterminal is never used after this point
+                        // and the `mem::forget(node)` ensures we do not double free
+                        unsafe { (nonterminal as *mut String).drop_in_place() };
                     }
                 },
             }
+            mem::forget(node);
         }
         new_expressions.push((lhs, rhs));
     }
@@ -178,6 +210,9 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
             regex_strings,
             excepteds: StringInterner::<StringBackend<SymbolU32>>::new(), // It will be filled after semantic checks
         },
-        new_expressions.into_iter().map(|(lhs, rhs)| ExpressionWithID { lhs, rhs }).collect(),
+        new_expressions
+            .into_iter()
+            .map(|(lhs, rhs)| ExpressionWithID { lhs, rhs })
+            .collect(),
     )
 }

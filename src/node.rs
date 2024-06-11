@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use serde::Serialize;
+use std::mem;
 use string_interner::symbol::SymbolU32;
 
 #[derive(Debug, Clone, Serialize)]
@@ -14,6 +15,59 @@ pub enum Node {
     Symbol(Box<Node>, SymbolKind, Box<Node>),
     Group(Box<Node>),
     EXCEPT(Excepted, Option<usize>),
+}
+
+impl Drop for Node {
+    fn drop(&mut self) {
+        let mut stack = vec![];
+        match self {
+            Node::Terminal(_) | Node::RegexString(_) | Node::Nonterminal(_) => {}
+            Node::Multiple(nodes) => {
+                while let Some(node) = nodes.pop() {
+                    stack.push(node);
+                }
+            }
+            Node::RegexExt(node, _) => {
+                let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
+                stack.push(node);
+            }
+            Node::Symbol(lhs, _, rhs) => {
+                let lhs = mem::replace(lhs.as_mut(), Node::Terminal(String::new()));
+                let rhs = mem::replace(rhs.as_mut(), Node::Terminal(String::new()));
+                stack.push(lhs);
+                stack.push(rhs);
+            }
+            Node::Group(node) => {
+                let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
+                stack.push(node);
+            }
+            Node::EXCEPT(_e, _) => {}
+        };
+        while let Some(mut node) = stack.pop() {
+            match &mut node {
+                Node::Multiple(nodes) => {
+                    while let Some(node) = nodes.pop() {
+                        stack.push(node);
+                    }
+                }
+                Node::RegexExt(node, _) => {
+                    let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
+                    stack.push(node);
+                }
+                Node::Symbol(lhs, _, rhs) => {
+                    let lhs = mem::replace(lhs.as_mut(), Node::Terminal(String::new()));
+                    let rhs = mem::replace(rhs.as_mut(), Node::Terminal(String::new()));
+                    stack.push(lhs);
+                    stack.push(rhs);
+                }
+                Node::Group(node) => {
+                    let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
+                    stack.push(node);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
@@ -89,7 +143,7 @@ pub enum RegexExtKind {
     Optional,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Copy)]
 pub enum SymbolKind {
     Concatenation,
     Alternation,

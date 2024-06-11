@@ -1,3 +1,6 @@
+use std::mem::ManuallyDrop;
+use std::ops::DerefMut;
+
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
@@ -101,7 +104,7 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
             nom::Err::Error(VerboseError {
                 errors: vec![(
                     "Invalid regex string: ",
-                    nom::error::VerboseErrorKind::Context(string.to_string().leak()), 
+                    nom::error::VerboseErrorKind::Context(string.to_string().leak()),
                     // This is not the optimum choice but is the easiest way.
                     // And the memory leak will not be a problem unless someone has unusually big regex strings and/or repeatedly tries to parse a faulty grammar.
                 )],
@@ -149,15 +152,29 @@ fn parse_except(input: &str) -> Res<&str, Node> {
     Ok((
         input,
         Node::EXCEPT(
-            match excepted {
-                Node::Nonterminal(s) => Excepted::Nonterminal(s),
-                Node::Terminal(s) => Excepted::Terminal(s),
-                _ => Err(Err::Error(VerboseError {
-                    errors: vec![(
-                        input,
-                        VerboseErrorKind::Context("Expected terminal or nonterminal"),
-                    )],
-                }))?,
+            {
+                let mut excepted = ManuallyDrop::new(excepted);
+                let result = match excepted.deref_mut() {
+                    Node::Nonterminal(s) => {
+                        Excepted::Nonterminal(unsafe { (s as *mut String).read() })
+                        // SAFETY:
+                        // - A pointer created from a reference is valid, aligned and points to initialized value
+                        // as long as the reference is valid.
+                        // The ManuallyDrop ensures no double free.
+                    }
+                    Node::Terminal(s) => Excepted::Terminal(unsafe { (s as *mut String).read() }),
+                    // SAFETY:
+                    // - A pointer created from a reference is valid, aligned and points to initialized value
+                    // as long as the reference is valid.
+                    // The ManuallyDrop ensures no double free.
+                    _ => Err(Err::Error(VerboseError {
+                        errors: vec![(
+                            input,
+                            VerboseErrorKind::Context("Expected terminal or nonterminal"),
+                        )],
+                    }))?,
+                };
+                result
             },
             number_str.map(|x: &str| x.parse::<usize>().unwrap()),
         ),
@@ -489,5 +506,20 @@ mod test {
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)
+    }
+    #[test]
+    fn ensure_drop_work_correctly_for_node() {
+        let mut node = Node::Group(Box::new(Node::Terminal("a".to_string())));
+        let mut mut_ref = match &mut node {
+            Node::Group(node) => &mut **node,
+            _ => unreachable!(),
+        };
+        for _ in 0..1000000 {
+            *mut_ref = Node::Group(Box::new(Node::Terminal("a".to_string())));
+            mut_ref = match &mut *mut_ref {
+                Node::Group(node) => node,
+                _ => unreachable!(),
+            };
+        }
     }
 }
