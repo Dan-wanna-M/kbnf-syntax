@@ -33,9 +33,7 @@ impl ValidatedGrammar {
         excepted_config: FiniteStateAutomatonConfig,
         regex_start_config: &regex_automata::util::start::Config,
     ) -> SimplifiedGrammar {
-        println!("{:?}", self.expressions.len());
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
-        println!("{:?}", expressions.len());
         let (expressions, mut special_nonterminals) =
             Self::flatten_nested_rules_with_nonterminals(expressions, &mut self.interned_strings);
         let expressions = Self::flatten_operators(expressions);
