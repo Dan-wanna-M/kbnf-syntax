@@ -316,6 +316,8 @@ pub(crate) fn parse_expressions(input: &str) -> Res<&str, Vec<Expression>> {
 mod test {
     use insta::assert_yaml_snapshot;
 
+    use crate::node::NodeWithID;
+
     use super::*;
 
     #[test]
@@ -503,6 +505,21 @@ mod test {
             *mut_ref = Node::Group(Box::new(Node::Terminal("a".to_string())));
             mut_ref = match &mut *mut_ref {
                 Node::Group(node) => node,
+                _ => unreachable!(),
+            };
+        }
+    }
+    #[test]
+    fn ensure_drop_work_correctly_for_node_with_ids() {
+        let mut node: NodeWithID = NodeWithID::Group(Box::new(NodeWithID::Unknown));
+        let mut mut_ref = match &mut node {
+            NodeWithID::Group(node) => &mut **node,
+            _ => unreachable!(),
+        };
+        for _ in 0..1000000 {
+            *mut_ref = NodeWithID::Group(Box::new(NodeWithID::Unknown));
+            mut_ref = match &mut *mut_ref {
+                NodeWithID::Group(node) => node,
                 _ => unreachable!(),
             };
         }

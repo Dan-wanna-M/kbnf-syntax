@@ -1,4 +1,4 @@
-use std::iter::zip;
+use std::{iter::zip, mem};
 
 use regex_automata::dfa;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -110,12 +110,12 @@ impl ValidatedGrammar {
                 NodeWithID::Terminal(_) => {}
                 NodeWithID::RegexString(_) => {}
                 NodeWithID::Nonterminal(nonterminal) => {
-                    if used_nonterminals.contains(nonterminal){
+                    if used_nonterminals.contains(nonterminal) {
                         continue;
                     }
                     used_nonterminals.insert(*nonterminal);
                     for ExpressionWithID { lhs, rhs: node } in &expressions {
-                        if *lhs == *nonterminal{
+                        if *lhs == *nonterminal {
                             stack.push(node);
                         }
                     }
@@ -205,25 +205,28 @@ impl ValidatedGrammar {
                 let mut root = NoNestingNode::Unknown;
                 let ExpressionWithID { lhs, rhs } = rules.swap_remove(i);
                 stack.push((rhs, &mut root));
-                while let Some((old_node, new_parent)) = stack.pop() {
-                    match old_node {
+                while let Some((mut old_node, new_parent)) = stack.pop() {
+                    match &mut old_node {
                         NodeWithID::Terminal(value) => {
-                            *new_parent = NoNestingNode::Terminal(value);
+                            *new_parent = NoNestingNode::Terminal(*value);
                         }
                         NodeWithID::RegexString(value) => {
-                            *new_parent = NoNestingNode::RegexString(value);
+                            *new_parent = NoNestingNode::RegexString(*value);
                         }
                         NodeWithID::Nonterminal(value) => {
-                            *new_parent = NoNestingNode::Nonterminal(value);
+                            *new_parent = NoNestingNode::Nonterminal(*value);
                         }
                         NodeWithID::Multiple(nodes) => {
-                            *new_parent = NoNestingNode::Concatenations(get_slice(&nodes));
+                            *new_parent = NoNestingNode::Concatenations(get_slice(nodes));
                             match new_parent {
                                 NoNestingNode::Concatenations(new_nodes) => {
                                     for (node, new_parent) in
-                                        zip(nodes.into_iter(), new_nodes.iter_mut())
+                                        zip(nodes.iter_mut(), new_nodes.iter_mut())
                                     {
-                                        stack.push((node, new_parent));
+                                        stack.push((
+                                            mem::replace(node, NodeWithID::Unknown),
+                                            new_parent,
+                                        ));
                                     }
                                 }
                                 _ => unreachable!(),
@@ -238,13 +241,16 @@ impl ValidatedGrammar {
                                     RegexExtKind::Optional => "optional",
                                 },
                                 new_parent,
-                                *node,
+                                mem::replace(node.as_mut(), NodeWithID::Unknown),
                                 &mut rules,
-                                Some(ext),
+                                Some(*ext),
                             );
                         }
                         NodeWithID::Symbol(l, symbol, r) => {
-                            let nodes = vec![*l, *r];
+                            let nodes = vec![
+                                mem::replace(l.as_mut(), NodeWithID::Unknown),
+                                mem::replace(r.as_mut(), NodeWithID::Unknown),
+                            ];
                             match symbol {
                                 SymbolKind::Concatenation => {
                                     *new_parent = NoNestingNode::Concatenations(get_slice(&nodes));
@@ -275,10 +281,17 @@ impl ValidatedGrammar {
                             }
                         }
                         NodeWithID::Group(node) => {
-                            add_new_rule(lhs, "group", new_parent, *node, &mut rules, None);
+                            add_new_rule(
+                                lhs,
+                                "group",
+                                new_parent,
+                                mem::replace(node.as_mut(), NodeWithID::Unknown),
+                                &mut rules,
+                                None,
+                            );
                         }
                         NodeWithID::EXCEPT(excepted, o) => {
-                            *new_parent = NoNestingNode::EXCEPT(excepted, o);
+                            *new_parent = NoNestingNode::EXCEPT(*excepted, *o);
                         }
                         NodeWithID::Unknown => {
                             unreachable!("Unknown node. This should not happen.")

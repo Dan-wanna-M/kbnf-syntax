@@ -82,6 +82,61 @@ pub enum NodeWithID {
     EXCEPT(ExceptedWithID, Option<usize>),
     Unknown,
 }
+
+impl Drop for NodeWithID {
+    fn drop(&mut self) {
+        let mut stack = vec![];
+        match self {
+            NodeWithID::Terminal(_) | NodeWithID::RegexString(_) | NodeWithID::Nonterminal(_) => {}
+            NodeWithID::Multiple(nodes) => {
+                while let Some(node) = nodes.pop() {
+                    stack.push(node);
+                }
+            }
+            NodeWithID::RegexExt(node, _) => {
+                let node = mem::replace(node.as_mut(), NodeWithID::Unknown);
+                stack.push(node);
+            }
+            NodeWithID::Symbol(lhs, _, rhs) => {
+                let lhs = mem::replace(lhs.as_mut(), NodeWithID::Unknown);
+                let rhs = mem::replace(rhs.as_mut(), NodeWithID::Unknown);
+                stack.push(lhs);
+                stack.push(rhs);
+            }
+            NodeWithID::Group(node) => {
+                let node = mem::replace(node.as_mut(), NodeWithID::Unknown);
+                stack.push(node);
+            }
+            NodeWithID::EXCEPT(_e, _) => {}
+            NodeWithID::Unknown => {}
+        };
+        while let Some(mut node) = stack.pop() {
+            match &mut node {
+                NodeWithID::Multiple(nodes) => {
+                    while let Some(node) = nodes.pop() {
+                        stack.push(node);
+                    }
+                }
+                NodeWithID::RegexExt(node, _) => {
+                    let node = mem::replace(node.as_mut(), NodeWithID::Unknown);
+                    stack.push(node);
+                }
+                NodeWithID::Symbol(lhs, _, rhs) => {
+                    let lhs = mem::replace(lhs.as_mut(), NodeWithID::Unknown);
+                    let rhs = mem::replace(rhs.as_mut(), NodeWithID::Unknown);
+                    stack.push(lhs);
+                    stack.push(rhs);
+                }
+                NodeWithID::Group(node) => {
+                    let node = mem::replace(node.as_mut(), NodeWithID::Unknown);
+                    stack.push(node);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
 pub(crate) enum NoNestingNode {
@@ -130,7 +185,7 @@ pub enum Excepted {
     Terminal(String),
     Nonterminal(String),
 }
-#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub enum ExceptedWithID {
     Terminal(SymbolU32),
     Nonterminal(SymbolU32),
