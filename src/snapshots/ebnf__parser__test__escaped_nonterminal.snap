@@ -1,12 +1,14 @@
 ---
 source: src/parser.rs
-assertion_line: 369
 expression: result
 ---
-- "\n             single_quote ::= '\\t\\b\\n\\r\\f\\/\\'';\n             double_quote ::= \"\\t\\b\\n\\r\\f\\/\\\"\";\n        "
+- "\n             single_quote ::= '\\t\\r\\n\\'';\n             double_quote ::= \"\\t\\r\\n\\\"\";\n             regex_double_quote ::= #\"\\t\\r\\n\\\"\";\n        "
 - - lhs: single_quote
     rhs:
-      Terminal: "\\t\\b\\n\\r\\f\\/\\'"
+      Terminal: "\t\r\n'"
   - lhs: double_quote
     rhs:
-      Terminal: "\\t\\b\\n\\r\\f\\/\\\""
+      Terminal: "\t\r\n\""
+  - lhs: regex_double_quote
+    rhs:
+      RegexString: "\t\r\n\""

@@ -2,9 +2,9 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use nom::bytes::complete::{escaped, take_until};
+use nom::bytes::complete::{escaped, escaped_transform, take_until};
 use nom::character::complete::{none_of, one_of};
-use nom::combinator::opt;
+use nom::combinator::{opt, value};
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -76,8 +76,20 @@ fn parse_terminal(input: &str) -> Res<&str, Node> {
             complete::char('"'),
         ),
     ))(input)?;
-
-    Ok((input, Node::Terminal(string.unwrap_or("").to_string())))
+    let string = string.unwrap_or("");
+    let (_, string) = escaped_transform(
+        none_of("\\"),
+        '\\',
+        alt((
+            value("\\", tag("\\")),
+            value("\'", tag("\'")),
+            value("\"", tag("\"")),
+            value("\n", tag("n")),
+            value("\r", tag("r")),
+            value("\t", tag("t")),
+        )),
+    )(string)?;
+    Ok((input, Node::Terminal(string)))
 }
 
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
@@ -94,14 +106,26 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
         ),
     ))(input)?;
     let string = string.unwrap_or("");
+    let (_, string) = escaped_transform(
+        none_of("\\"),
+        '\\',
+        alt((
+            value("\\", tag("\\")),
+            value("\'", tag("\'")),
+            value("\"", tag("\"")),
+            value("\n", tag("n")),
+            value("\r", tag("r")),
+            value("\t", tag("t")),
+        )),
+    )(string)?;
     let node = Node::RegexString(string.to_string());
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
-        .parse(string)
+        .parse(&string)
         .map_err(|_: regex_syntax::ast::Error| {
             nom::Err::Error(VerboseError {
                 errors: vec![(
                     "Invalid regex string: ",
-                    nom::error::VerboseErrorKind::Context(string.to_string().leak()),
+                    nom::error::VerboseErrorKind::Context(string.leak()),
                     // This is not the optimum choice but is the easiest way.
                     // And the memory leak will not be a problem unless someone has unusually big regex strings and/or repeatedly tries to parse a faulty grammar.
                 )],
@@ -433,8 +457,9 @@ mod test {
     #[test]
     fn escaped_nonterminal() {
         let source = r#"
-             single_quote ::= '\t\b\n\r\f\/\'';
-             double_quote ::= "\t\b\n\r\f\/\"";
+             single_quote ::= '\t\r\n\'';
+             double_quote ::= "\t\r\n\"";
+             regex_double_quote ::= #"\t\r\n\"";
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)

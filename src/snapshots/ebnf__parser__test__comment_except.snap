@@ -6,5 +6,5 @@ expression: result
 - - lhs: except
     rhs:
       EXCEPT:
-        - Terminal: "\\n\\n"
+        - Terminal: "\n\n"
         - ~
