@@ -513,7 +513,11 @@ mod test {
         let source = r#"
         (*114514*)
             except ::= except!(    '\n\n');  (*114514*)
-            (*114514*)
+            (*114
+            
+            except ::= except!(    '\n\n');
+            
+            514*)
             (*114514*)
         "#;
         let result = parse_expressions(source).unwrap();
