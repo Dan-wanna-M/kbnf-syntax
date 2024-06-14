@@ -11,7 +11,7 @@ pub fn compile_one_regex_string(
     config: FiniteStateAutomatonConfig,
 ) -> Result<FiniteStateAutomaton, SemanticError> {
     let regex: Result<FiniteStateAutomaton, SemanticError> = match config {
-        FiniteStateAutomatonConfig::Dfa(ref config) => regex_automata::dfa::dense::Builder::new()
+        FiniteStateAutomatonConfig::Dfa(ref config) => kbnf_regex_automata::dfa::dense::Builder::new()
             .configure(config.clone())
             .build(regex_string)
             .map(FiniteStateAutomaton::Dfa)

@@ -1,4 +1,4 @@
-use regex_automata::dfa::dense::BuildError;
+use kbnf_regex_automata::dfa::dense::BuildError;
 use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum SemanticError {
@@ -11,6 +11,6 @@ pub enum SemanticError {
     #[error(transparent)]
     DfaRegexBuildError(#[from] BuildError),
     #[error(transparent)]
-    LazyDfaRegexBuildError(#[from] regex_automata::hybrid::BuildError),
+    LazyDfaRegexBuildError(#[from] kbnf_regex_automata::hybrid::BuildError),
     
 }

@@ -1,4 +1,4 @@
-use regex_automata::dfa::{self, Automaton};
+use kbnf_regex_automata::dfa::{self, Automaton};
 #[derive(Debug, Clone)]
 pub enum FiniteStateAutomaton {
     Dfa(dfa::dense::DFA<Vec<u32>>),
@@ -10,7 +10,7 @@ impl FiniteStateAutomaton {
         }
     }
 
-    pub fn only_empty(&self, config: &regex_automata::util::start::Config) -> bool {
+    pub fn only_empty(&self, config: &kbnf_regex_automata::util::start::Config) -> bool {
         if !self.has_empty() {
             return false;
         }
