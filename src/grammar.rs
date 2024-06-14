@@ -592,7 +592,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new().anchored(regex_automata::Anchored::Yes),
+                &kbnf_regex_automata::util::start::Config::new().anchored(kbnf_regex_automata::Anchored::Yes),
             );
         assert_snapshot!(format!("{:?}", result))
     }
@@ -615,7 +615,7 @@ mod test {
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new().anchored(regex_automata::Anchored::Yes),
+                &kbnf_regex_automata::util::start::Config::new().anchored(kbnf_regex_automata::Anchored::Yes),
             );
         assert_snapshot!(format!("{:?}", result))
     }
