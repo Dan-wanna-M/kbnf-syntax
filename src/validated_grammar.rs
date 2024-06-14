@@ -1,6 +1,6 @@
 use std::{iter::zip, mem};
 
-use regex_automata::dfa;
+use kbnf_regex_automata::dfa;
 use rustc_hash::{FxHashMap, FxHashSet};
 use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner, Symbol};
 
@@ -31,7 +31,7 @@ impl ValidatedGrammar {
         mut self,
         config: CompressionConfig,
         excepted_config: FiniteStateAutomatonConfig,
-        regex_start_config: &regex_automata::util::start::Config,
+        regex_start_config: &kbnf_regex_automata::util::start::Config,
     ) -> SimplifiedGrammar {
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
         let (expressions, mut special_nonterminals) =
@@ -769,13 +769,13 @@ impl ValidatedGrammar {
         rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
         id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
-        regex_start_config: &regex_automata::util::start::Config,
+        regex_start_config: &kbnf_regex_automata::util::start::Config,
     ) -> FxHashMap<SymbolU32, Rhs> {
         fn find_nullable_nonterminals(
             rules: &FxHashMap<SymbolU32, Rhs>,
             interned_strings: &InternedStrings,
             id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
-            regex_start_config: &regex_automata::util::start::Config,
+            regex_start_config: &kbnf_regex_automata::util::start::Config,
         ) -> (
             FxHashSet<OperatorFlattenedNode>,
             FxHashSet<OperatorFlattenedNode>,
