@@ -2,9 +2,9 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use nom::bytes::complete::{escaped, escaped_transform, take_until};
+use nom::bytes::complete::{escaped, escaped_transform, take, take_until, take_while_m_n};
 use nom::character::complete::{none_of, one_of};
-use nom::combinator::{opt, value};
+use nom::combinator::{map_res, opt, value};
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -63,16 +63,44 @@ fn parse_rhs(input: &str) -> Res<&str, Node> {
     Ok((input, rhs))
 }
 
+fn unescape_unicode(input:&str)->Res<&'static str,String>
+{
+    let mut result = String::new();
+    let mut chars = input.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            let c = chars.next().unwrap();
+            match c {
+                'u' => {
+                    let mut hex = String::new();
+                    for _ in 0..4 {
+                        hex.push(chars.next().unwrap());
+                    }
+                    let c = u32::from_str_radix(&hex, 16).map_err(|_|nom::Err::Failure(VerboseError{
+                        errors:vec![(&*input.to_string().leak(),VerboseErrorKind::Context("Invalid unicode escape character"))]
+                    }));
+                    let c = char::from_u32(c?).unwrap();
+                    result.push(c);
+                }
+                _ => result.push(c),
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    Ok(("",result))
+}
+
 fn parse_terminal(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             complete::char('\''),
-            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'"#))),
+            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'u"#))),
             complete::char('\''),
         ),
         delimited(
             complete::char('"'),
-            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\""#))),
+            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\"u"#))),
             complete::char('"'),
         ),
     ))(input)?;
@@ -87,9 +115,11 @@ fn parse_terminal(input: &str) -> Res<&str, Node> {
             value("\n", tag("n")),
             value("\r", tag("r")),
             value("\t", tag("t")),
+            value("\\u", tag("u")),
         )),
     )(string)?;
-    Ok((input, Node::Terminal(string)))
+    let (_, string) = unescape_unicode(&string)?;
+    Ok((input, Node::Terminal(string.to_string())))
 }
 
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
@@ -116,6 +146,7 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
             value("\n", tag("n")),
             value("\r", tag("r")),
             value("\t", tag("t")),
+            value("\\u", tag("u")),
         )),
     )(string)?;
     let node = Node::RegexString(string.to_string());
@@ -457,7 +488,7 @@ mod test {
     #[test]
     fn escaped_nonterminal() {
         let source = r#"
-             single_quote ::= '\t\r\n\'';
+             single_quote ::= '\t\r\n\'\u004C';
              double_quote ::= "\t\r\n\"";
              regex_double_quote ::= #"\t\r\n\"";
         "#;

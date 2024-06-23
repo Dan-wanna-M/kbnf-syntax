@@ -1,0 +1,17 @@
+---
+source: src/parser.rs
+expression: result
+---
+- "\n            filter ::= a | b;\n            a ::= 'a';\n            b ::= 'b';\n        "
+- - lhs: filter
+    rhs:
+      Symbol:
+        - Nonterminal: a
+        - Alternation
+        - Nonterminal: b
+  - lhs: a
+    rhs:
+      Terminal: a
+  - lhs: b
+    rhs:
+      Terminal: b

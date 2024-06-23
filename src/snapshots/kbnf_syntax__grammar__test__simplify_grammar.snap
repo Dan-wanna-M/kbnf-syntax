@@ -1,0 +1,10 @@
+---
+source: src/grammar.rs
+expression: "format!(\"{:?}\", result)"
+---
+start_symbol: S(ID: 2)
+C ::= 'dc'(ID: 0);
+A ::= A(ID: 1) 'c'(ID: 1) | #"cd|Ac"(ID: 0,type: DFA);
+S ::= 'jk'(ID: 2) A(ID: 1) | 'ef'(ID: 3) S_repeat0_0(ID: 3) | except!(#'dc')(ID: 0,type: DFA) | except!(#'c',10)(ID: 1,type: DFA) | 'ab'(ID: 4) S(ID: 2) | #"ef|ab|abc"(ID: 1,type: DFA);
+S_repeat0_0 ::= S_repeat0_0(ID: 3) B_optional_0_group_0(ID: 4) | B_optional_0_group_0(ID: 4);
+B_optional_0_group_0 ::= 'a'(ID: 5) B_optional_0_group_0(ID: 4) | 'a'(ID: 5);

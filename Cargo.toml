@@ -3,7 +3,7 @@ name = "kbnf-syntax"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "An internal library for kbnf crate"
+description = "An internal syntax crate for kbnf crate"
 readme = "README.md"
 keywords = ["ebnf", "bnf"]
 

@@ -1,0 +1,6 @@
+---
+source: src/grammar.rs
+expression: "format!(\"{:?}\", result)"
+---
+start_symbol: S(ID: 0)
+S ::= 'a'(ID: 0);

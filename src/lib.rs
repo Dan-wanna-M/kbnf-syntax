@@ -21,7 +21,7 @@
 //! ## How to use this library?
 //!
 //! ```rust
-//! extern crate ebnf;
+//! extern crate kbnf_syntax;
 //!
 //! fn main() {
 //!     let source = r"
@@ -31,7 +31,7 @@
 //!         digits ::= #'[0-9]+';
 //!     ";
 //!
-//!     let result = ebnf::get_grammar(source);
+//!     let result = kbnf_syntax::get_grammar(source);
 //! }
 //! ```
 
@@ -70,7 +70,7 @@ pub struct InternedStrings {
 /// # Example
 ///
 /// ```rust
-/// use ebnf::get_grammar;
+/// use kbnf_syntax::get_grammar;
 ///
 /// let grammar_literal = r"
 ///     term ::= '1';

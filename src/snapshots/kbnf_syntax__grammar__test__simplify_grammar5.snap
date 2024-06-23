@@ -1,0 +1,7 @@
+---
+source: src/grammar.rs
+expression: "format!(\"{:?}\", result)"
+---
+start_symbol: S(ID: 0)
+S ::= 'ab'(ID: 0) S(ID: 0) | 'jk'(ID: 1) A(ID: 1) | 'ab'(ID: 0);
+A ::= A(ID: 1) 'c'(ID: 2) | #"cd|Ac"(ID: 0,type: DFA);

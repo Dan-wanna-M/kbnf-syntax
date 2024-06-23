@@ -1,0 +1,7 @@
+---
+source: src/grammar.rs
+expression: "format!(\"{:?}\", result)"
+---
+start_symbol: S(ID: 0)
+S ::= except!(#'c',10)(ID: 0,type: DFA) | except!(#'a|B|qa')(ID: 1,type: DFA) | except!(#'c')(ID: 0,type: DFA);
+A ::= #"a|B|qa"(ID: 0,type: DFA);

@@ -1,0 +1,9 @@
+---
+source: src/grammar.rs
+expression: "format!(\"{:?}\", result)"
+---
+start_symbol: start(ID: 0)
+start ::= A(ID: 1) '
+'(ID: 0);
+A ::= 'x'(ID: 1) B(ID: 2) | 'x'(ID: 1);
+B ::= 'y'(ID: 2) A(ID: 1) | 'y'(ID: 2);

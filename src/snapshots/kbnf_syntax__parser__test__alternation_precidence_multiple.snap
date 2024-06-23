@@ -1,0 +1,14 @@
+---
+source: src/parser.rs
+expression: result
+---
+- "\n             filter ::= 'a' | 'b' | 'c';\n        "
+- - lhs: filter
+    rhs:
+      Symbol:
+        - Terminal: a
+        - Alternation
+        - Symbol:
+            - Terminal: b
+            - Alternation
+            - Terminal: c
