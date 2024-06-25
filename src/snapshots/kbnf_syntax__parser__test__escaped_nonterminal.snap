@@ -2,13 +2,16 @@
 source: src/parser.rs
 expression: result
 ---
-- "\n             single_quote ::= '\\t\\r\\n\\'\\u004C';\n             double_quote ::= \"\\t\\r\\n\\\"\";\n             regex_double_quote ::= #\"\\t\\r\\n\\\"\";\n        "
+- "\n             single_quote ::= '\\t\\r\\n\\'\\u004C';\n             double_quote ::= \"\\t\\r\\n\\\"\\u004C\";\n             regex_double_quote ::= #\"\\t\\r\\n\\\"\\u004C\";\n             regex_single_quote ::= #'\\t\\r\\n\\'\\u004C';\n        "
 - - lhs: single_quote
     rhs:
       Terminal: "\t\r\n'L"
   - lhs: double_quote
     rhs:
-      Terminal: "\t\r\n\""
+      Terminal: "\t\r\n\"L"
   - lhs: regex_double_quote
     rhs:
-      RegexString: "\t\r\n\""
+      RegexString: "\t\r\n\"L"
+  - lhs: regex_single_quote
+    rhs:
+      RegexString: "\t\r\n'L"

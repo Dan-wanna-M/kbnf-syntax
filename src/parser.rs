@@ -126,12 +126,12 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             tag("#'"),
-            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'"#))),
+            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'u"#))),
             complete::char('\''),
         ),
         delimited(
             tag("#\""),
-            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\""#))),
+            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\"u"#))),
             complete::char('"'),
         ),
     ))(input)?;
@@ -149,6 +149,8 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
             value("\\u", tag("u")),
         )),
     )(string)?;
+    println!("{:?}", string);
+    let (_, string) = unescape_unicode(&string)?;
     let node = Node::RegexString(string.to_string());
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(&string)
@@ -489,8 +491,9 @@ mod test {
     fn escaped_nonterminal() {
         let source = r#"
              single_quote ::= '\t\r\n\'\u004C';
-             double_quote ::= "\t\r\n\"";
-             regex_double_quote ::= #"\t\r\n\"";
+             double_quote ::= "\t\r\n\"\u004C";
+             regex_double_quote ::= #"\t\r\n\"\u004C";
+             regex_single_quote ::= #'\t\r\n\'\u004C';
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)
