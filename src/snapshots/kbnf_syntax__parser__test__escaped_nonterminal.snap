@@ -2,7 +2,7 @@
 source: src/parser.rs
 expression: result
 ---
-- "\n             single_quote ::= '\\t\\r\\n\\'\\u004C';\n             double_quote ::= \"\\t\\r\\n\\\"\\u004C\";\n             regex_double_quote ::= #\"\\t\\r\\n\\\"\\u004C\";\n             regex_single_quote ::= #'\\t\\r\\n\\'\\u004C';\n        "
+- "\nsingle_quote ::= '\\t\\r\\n\\'\\u004C';\ndouble_quote ::= \"\\t\\r\\n\\\"\\u004C\";\nregex_double_quote ::= #\"\\t\\r\\n\\\"\\u004C\";\nregex_single_quote ::= #'\\t\\r\\n\\'\\u004C';\n        "
 - - lhs: single_quote
     rhs:
       Terminal: "\t\r\n'L"

@@ -63,62 +63,31 @@ fn parse_rhs(input: &str) -> Res<&str, Node> {
     Ok((input, rhs))
 }
 
-fn unescape_unicode(input:&str)->Res<&'static str,String>
+fn unescape<'a>(input:&'a str,context:&'a str)->Res<&'a str,String>
 {
-    let mut result = String::new();
-    let mut chars = input.chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            let c = chars.next().unwrap();
-            match c {
-                'u' => {
-                    let mut hex = String::new();
-                    for _ in 0..4 {
-                        hex.push(chars.next().unwrap());
-                    }
-                    let c = u32::from_str_radix(&hex, 16).map_err(|_|nom::Err::Failure(VerboseError{
-                        errors:vec![(&*input.to_string().leak(),VerboseErrorKind::Context("Invalid unicode escape character"))]
-                    }));
-                    let c = char::from_u32(c?).unwrap();
-                    result.push(c);
-                }
-                _ => result.push(c),
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    Ok(("",result))
+    Ok((context,unescaper::unescape(input).map_err(|e| Err::Error(VerboseError {
+        errors: vec![(
+            input,
+            VerboseErrorKind::Context("Invalid escape sequence"),
+        )],
+    }))?))
 }
 
 fn parse_terminal(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             complete::char('\''),
-            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'u"#))),
+            opt(escaped(none_of("\\\'"), '\\', nom::character::complete::anychar)),
             complete::char('\''),
         ),
         delimited(
             complete::char('"'),
-            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\"u"#))),
+            opt(escaped(none_of("\\\""), '\\', nom::character::complete::anychar)),
             complete::char('"'),
         ),
     ))(input)?;
     let string = string.unwrap_or("");
-    let (_, string) = escaped_transform(
-        none_of("\\"),
-        '\\',
-        alt((
-            value("\\", tag("\\")),
-            value("\'", tag("\'")),
-            value("\"", tag("\"")),
-            value("\n", tag("n")),
-            value("\r", tag("r")),
-            value("\t", tag("t")),
-            value("\\u", tag("u")),
-        )),
-    )(string)?;
-    let (_, string) = unescape_unicode(&string)?;
+    let (_, string) = unescape(string,input)?;
     Ok((input, Node::Terminal(string.to_string())))
 }
 
@@ -126,31 +95,17 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             tag("#'"),
-            opt(escaped(none_of("\\\'"), '\\', one_of(r#"tbnrf/\'u"#))),
+            opt(escaped(none_of("\\\'"), '\\', nom::character::complete::anychar)),
             complete::char('\''),
         ),
         delimited(
             tag("#\""),
-            opt(escaped(none_of("\\\""), '\\', one_of(r#"tbnrf/\"u"#))),
+            opt(escaped(none_of("\\\""), '\\', nom::character::complete::anychar)),
             complete::char('"'),
         ),
     ))(input)?;
     let string = string.unwrap_or("");
-    let (_, string) = escaped_transform(
-        none_of("\\"),
-        '\\',
-        alt((
-            value("\\", tag("\\")),
-            value("\'", tag("\'")),
-            value("\"", tag("\"")),
-            value("\n", tag("n")),
-            value("\r", tag("r")),
-            value("\t", tag("t")),
-            value("\\u", tag("u")),
-        )),
-    )(string)?;
-    println!("{:?}", string);
-    let (_, string) = unescape_unicode(&string)?;
+    let (_, string) = unescape(string,input)?;
     let node = Node::RegexString(string.to_string());
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(&string)
@@ -490,10 +445,10 @@ mod test {
     #[test]
     fn escaped_nonterminal() {
         let source = r#"
-             single_quote ::= '\t\r\n\'\u004C';
-             double_quote ::= "\t\r\n\"\u004C";
-             regex_double_quote ::= #"\t\r\n\"\u004C";
-             regex_single_quote ::= #'\t\r\n\'\u004C';
+single_quote ::= '\t\r\n\'\u004C';
+double_quote ::= "\t\r\n\"\u004C";
+regex_double_quote ::= #"\t\r\n\"\u004C";
+regex_single_quote ::= #'\t\r\n\'\u004C';
         "#;
         let result = parse_expressions(source).unwrap();
         assert_yaml_snapshot!(result)
