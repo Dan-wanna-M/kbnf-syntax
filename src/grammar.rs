@@ -508,6 +508,51 @@ mod test {
         assert_snapshot!(format!("{:?}", result))
     }
     #[test]
+    fn simplify_grammar11() {
+        let source = r#"
+__choice_food_0 ::= 'railroad' | 'orange' | 'banana';
+__regex_0_0 ::= #'[0-9]+';
+__regex_1_0 ::= #'[a-z]+';
+__choice_ID_0 ::= __regex_0_0 | __regex_1_0;
+integer ::= #"-?(0|[1-9]\\d*)";
+number ::= #"-?(0|[1-9]\\d*)(\\.\\d+)?([eE][+-]?\\d+)?";
+string ::= #'"([^\\\\"\u0000-\u001f]|\\\\["\\\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*"';
+boolean ::= "true"|"false";
+null ::= "null";
+array ::= array_begin (json_value (comma json_value)*)? array_end;
+object ::= object_begin (string colon json_value (comma string colon json_value)*)? object_end;
+json_value ::= number|string|boolean|null|array|object;
+comma ::= #"(\u0020|\u000A|\u000D|\u0009)*,(\u0020|\u000A|\u000D|\u0009)*";
+colon ::= #"(\u0020|\u000A|\u000D|\u0009)*:(\u0020|\u000A|\u000D|\u0009)*";
+object_begin ::= #"\\{(\u0020|\u000A|\u000D|\u0009)*";
+object_end ::= #"(\u0020|\u000A|\u000D|\u0009)*\\}";
+array_begin ::= #"\\[(\u0020|\u000A|\u000D|\u0009)*";
+array_end ::= #"(\u0020|\u000A|\u000D|\u0009)*\\]";
+__schema_json_0 ::= object_begin 'name' colon __schema_json_0_name comma 'weight' colon __schema_json_0_weight comma 'color' colon __schema_json_0_color object_end;
+__schema_json_0_color ::= string;
+__schema_json_0_weight ::= number;
+__schema_json_0_name ::= string;
+
+start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choice_ID_0 '.\n' "\nWhat's more, indentations\nare handled\nappropriately." "Let's end with a json: " __schema_json_0 '\n';
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "start",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 3,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &kbnf_regex_automata::util::start::Config::new(),
+            );
+        assert_snapshot!(format!("{:?}", result))
+    }
+    #[test]
     fn unit_production_for_start_symbol() {
         let source = r#"
             S ::= 'a';

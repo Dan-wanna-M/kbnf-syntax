@@ -1087,11 +1087,13 @@ impl ValidatedGrammar {
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
         let mut new_id_to_excepteds = Vec::with_capacity(id_to_excepteds.len());
         let mut new_rules: Vec<_> = Vec::with_capacity(rules.len());
+        let mut start_symbol_updated = false;
         for (lhs, rhs) in rules.into_iter() {
             let id =
                 interned_nonterminals.get_or_intern(interned.nonterminals.resolve(lhs).unwrap());
-            if lhs == start_symbol {
+            if lhs == start_symbol && !start_symbol_updated {
                 start_symbol = id;
+                start_symbol_updated = true;
             }
             assert!(id.to_usize() == new_rules.len());
             new_rules.push(rhs);

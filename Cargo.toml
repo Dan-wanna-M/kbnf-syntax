@@ -1,6 +1,6 @@
 [package]
 name = "kbnf-syntax"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 license = "MIT"
 description = "An internal syntax crate for kbnf crate"
@@ -16,7 +16,7 @@ serde = { version = "1.0", features = ["derive"] }
 regex-syntax = "0.8.3"
 string-interner = "0.17.0"
 thiserror = "1.0.60"
-rustc-hash = "1.1.0"
+rustc-hash = "2.0.0"
 kbnf-regex-automata="0.4.7"
 unescaper = "0.1.5"
 [dev-dependencies]
