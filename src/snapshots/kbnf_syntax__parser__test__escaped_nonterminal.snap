@@ -1,8 +1,8 @@
 ---
 source: src/parser.rs
-expression: result
+expression: result.unwrap()
 ---
-- "\nsingle_quote ::= '\\t\\r\\n\\'\\u004C';\ndouble_quote ::= \"\\t\\r\\n\\\"\\u004C\";\nregex_double_quote ::= #\"\\t\\r\\n\\\"\\u004C\";\nregex_single_quote ::= #'\\t\\r\\n\\'\\u004C';\n        "
+- "\nsingle_quote ::= '\\t\\r\\n\\'\\u004C';\ndouble_quote ::= \"\\t\\r\\n\\\"\\u004C\";\nregex_double_quote ::= #\"\\t\\r\\n\\\"\\u004C\";\nregex_single_quote ::= #'\\t\\r\\n\\'\\u004C';\nstring ::= #'\"([^\\\\\"\\u0000-\\u001f]|\\\\[\"\\\\bfnrt/]|\\\\\\\\u[0-9A-Fa-f]{4})*\"';\n        "
 - - lhs: single_quote
     rhs:
       Terminal: "\t\r\n'L"
@@ -15,3 +15,6 @@ expression: result
   - lhs: regex_single_quote
     rhs:
       RegexString: "\t\r\n'L"
+  - lhs: string
+    rhs:
+      RegexString: "\"([^\\\"\u0000-\u001f]|\\[\"\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*\""

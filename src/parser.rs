@@ -106,7 +106,7 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
     ))(input)?;
     let string = string.unwrap_or("");
     let (_, string) = unescape(string,input)?;
-    let node = Node::RegexString(string.to_string());
+    let node = Node::RegexString(format!(r"\A{string}\z"));
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(&string)
         .map_err(|_: regex_syntax::ast::Error| {
@@ -120,7 +120,7 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
             })
         })
         .map(|_| (input, node))
-}
+    }
 
 fn parse_nonterminal(input: &str) -> Res<&str, Node> {
     let (input, symbol) = preceded(
@@ -449,9 +449,10 @@ single_quote ::= '\t\r\n\'\u004C';
 double_quote ::= "\t\r\n\"\u004C";
 regex_double_quote ::= #"\t\r\n\"\u004C";
 regex_single_quote ::= #'\t\r\n\'\u004C';
+string ::= #'"([^\\"\u0000-\u001f]|\\["\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*"';
         "#;
-        let result = parse_expressions(source).unwrap();
-        assert_yaml_snapshot!(result)
+        let result = parse_expressions(source);
+        assert_yaml_snapshot!(result.unwrap())
     }
 
     #[test]
