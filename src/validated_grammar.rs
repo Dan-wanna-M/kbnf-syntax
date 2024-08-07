@@ -1001,7 +1001,7 @@ impl ValidatedGrammar {
                                         ExceptedWithID::Terminal(x) => {
                                             let string =
                                                 interned_strings.terminals.resolve(x).unwrap();
-                                            regex_string.push_str(string);
+                                            regex_string.push_str(&regex_lite::escape(string));
                                         }
                                         ExceptedWithID::Nonterminal(x) => {
                                             let terminals = rules.get(&x).unwrap();

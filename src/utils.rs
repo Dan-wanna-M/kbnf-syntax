@@ -31,7 +31,7 @@ pub fn from_terminals_to_regex_string(
             OperatorFlattenedNode::Terminal(x) => x,
             _ => unreachable!(),
         })
-        .map(|x| interned_strings.terminals.resolve(*x).unwrap())
+        .map(|x|regex_lite::escape(interned_strings.terminals.resolve(*x).unwrap()))
         .collect::<Vec<_>>()
         .join("|")
 }

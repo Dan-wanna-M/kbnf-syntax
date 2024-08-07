@@ -19,5 +19,6 @@ thiserror = "1.0.60"
 rustc-hash = "2.0.0"
 kbnf-regex-automata="0.4.7"
 unescaper = "0.1.5"
+regex-lite = "0.1.6"
 [dev-dependencies]
 insta = { version = "1.26.0", features = ["yaml"] }
