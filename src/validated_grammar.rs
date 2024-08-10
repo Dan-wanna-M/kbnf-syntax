@@ -39,7 +39,6 @@ impl ValidatedGrammar {
         let expressions = Self::flatten_operators(expressions);
         let expressions = Self::group_same_lhs_together(expressions);
         let expressions = Self::deduplicate_alternations(expressions);
-        println!("{:?}", self.interned_strings.nonterminals.get("__schema_json_1_next_0"));
         let expressions = Self::remove_unit_production(
             expressions,
             &mut self.start_symbol,
