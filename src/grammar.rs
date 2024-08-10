@@ -284,6 +284,33 @@ mod test {
             .unwrap();
     }
     #[test]
+    fn escaped_excepted_nonterminal() {
+        let source = r#"
+             except ::= except!(A);
+             A ::= 'a'|'{';
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "except",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap();
+    }
+    #[test]
+    fn escaped_excepted_nonterminal2() {
+        let source = r#"
+             except ::= except!('{');
+        "#;
+        let _ = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "except",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap();
+    }
+    #[test]
     #[should_panic]
     fn invalid_excepted_nonterminal2() {
         let source = r#"
@@ -647,6 +674,44 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
         let source = "start::=A'\n';
         A::='x'|'x' B;
         B::='y'|'y' A;";
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "start",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 3,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                &kbnf_regex_automata::util::start::Config::new().anchored(kbnf_regex_automata::Anchored::Yes),
+            );
+        assert_snapshot!(format!("{:?}", result))
+    }
+    #[test]
+    fn linked_list()
+    {
+        let source = r#"__schema_json_1_next_0 ::= __schema_json_1;
+
+start ::= "```json\n"__schema_json_1"```\n";
+
+__schema_json_1 ::= 
+    #"\\A\\{( |\n|\r|\t)*\\z" 
+    "\"value\""
+    #"\\A( |\n|\r|\t)*:( |\n|\r|\t)*\\z" 
+    #"\\A-?(0|[1-9]\\d*)\\z" 
+    #"\\A( |\n|\r|\t)*,( |\n|\r|\t)*\\z" 
+    "\"next\"" 
+    #"\\A( |\n|\r|\t)*:( |\n|\r|\t)*\\z" 
+    __schema_json_1_next
+    #"\\A( |\n|\r|\t)*\\}\\z";
+
+__schema_json_1_next ::= 
+    "null"
+    | __schema_json_1_next_0;"#;
         let result = get_grammar(source)
             .unwrap()
             .validate_grammar(

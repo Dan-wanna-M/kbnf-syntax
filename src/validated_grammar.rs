@@ -39,9 +39,12 @@ impl ValidatedGrammar {
         let expressions = Self::flatten_operators(expressions);
         let expressions = Self::group_same_lhs_together(expressions);
         let expressions = Self::deduplicate_alternations(expressions);
-        let expressions =
-            Self::remove_unit_production(expressions, self.start_symbol, &mut special_nonterminals);
-
+        println!("{:?}", self.interned_strings.nonterminals.get("__schema_json_1_next_0"));
+        let expressions = Self::remove_unit_production(
+            expressions,
+            &mut self.start_symbol,
+            &mut special_nonterminals,
+        );
         let expressions =
             Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
         let expressions = Self::expand_special_nonterminals(
@@ -56,8 +59,11 @@ impl ValidatedGrammar {
             &self.id_to_regex,
             regex_start_config,
         );
-        let expressions =
-            Self::remove_unit_production(expressions, self.start_symbol, &mut FxHashMap::default());
+        let expressions = Self::remove_unit_production(
+            expressions,
+            &mut self.start_symbol,
+            &mut FxHashMap::default(),
+        );
         let expressions =
             Self::merge_consecutive_terminals(expressions, &mut self.interned_strings);
         let expressions = Self::remove_fixed_point_production(expressions);
@@ -458,7 +464,7 @@ impl ValidatedGrammar {
 
     fn remove_unit_production(
         rules: FxHashMap<SymbolU32, Rhs>,
-        start_nonterminal: SymbolU32,
+        start_nonterminal: &mut SymbolU32,
         special_nonterminals: &mut FxHashMap<SymbolU32, RegexExtKind>,
     ) -> FxHashMap<SymbolU32, Rhs> {
         fn find_unit_chain<'a>(
@@ -482,9 +488,6 @@ impl ValidatedGrammar {
                 let node = altercation.concatenations.first().unwrap();
                 match node {
                     OperatorFlattenedNode::Nonterminal(next_nonterminal) => {
-                        if visited.contains(next_nonterminal) {
-                            break;
-                        }
                         if special_nonterminals.contains_key(&last_nonterminal)
                             ^ special_nonterminals.contains_key(next_nonterminal)
                         {
@@ -527,6 +530,7 @@ impl ValidatedGrammar {
                         last_nonterminal = *next_nonterminal;
                     }
                     _ => {
+                        println!("Special: {:?}", chain);
                         if !special_nonterminals.contains_key(&last_nonterminal) {
                             chain.push(node);
                         }
@@ -577,7 +581,7 @@ impl ValidatedGrammar {
                 stack.push(nonterminal);
             }
         }
-        let mut stack = vec![start_nonterminal];
+        let mut stack = vec![*start_nonterminal];
         let mut chains: FxHashMap<SymbolU32, OperatorFlattenedNode> = FxHashMap::default();
         let mut visited = FxHashSet::default();
         while let Some(nonterminal) = stack.pop() {
@@ -585,9 +589,11 @@ impl ValidatedGrammar {
             for a in rhs.alternations.iter() {
                 for c in a.concatenations.iter() {
                     if let &OperatorFlattenedNode::Nonterminal(nonterminal) = c {
+                        
                         if visited.contains(&nonterminal) {
                             continue;
                         }
+                        
                         update_nonterminal(
                             &rules,
                             c,
@@ -602,10 +608,18 @@ impl ValidatedGrammar {
             }
             visited.insert(nonterminal);
         }
+        if let Some(value) = chains.get(start_nonterminal) {
+            match value {
+                OperatorFlattenedNode::Nonterminal(nonterminal) => {
+                    *start_nonterminal = *nonterminal;
+                }
+                _ => unreachable!(),
+            }
+        }
         rules
             .into_iter()
             .filter_map(|(lhs, rhs)| {
-                if chains.contains_key(&lhs) && lhs != start_nonterminal {
+                if chains.contains_key(&lhs) {
                     None
                 } else {
                     Some((
