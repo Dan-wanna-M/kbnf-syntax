@@ -529,7 +529,6 @@ impl ValidatedGrammar {
                         last_nonterminal = *next_nonterminal;
                     }
                     _ => {
-                        println!("Special: {:?}", chain);
                         if !special_nonterminals.contains_key(&last_nonterminal) {
                             chain.push(node);
                         }
