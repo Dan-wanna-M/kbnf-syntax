@@ -3,4 +3,4 @@ source: src/grammar.rs
 expression: "format!(\"{:?}\", result)"
 ---
 start_symbol: S(ID: 0)
-S ::= 'cd'(ID: 0);
+S ::= 'cd'(ID: 0) #e"\Acd\z"(ID: 0,type: DFA);

@@ -2,6 +2,6 @@
 source: src/grammar.rs
 expression: "format!(\"{:?}\", result)"
 ---
-start_symbol: S(ID: 1)
-A ::= A(ID: 0) 'c'(ID: 0) | #"Ac|cd"(ID: 0,type: DFA);
-S ::= 'jk'(ID: 1) A(ID: 0) | 'ab'(ID: 2) S(ID: 1) | 'ab'(ID: 2);
+start_symbol: S(ID: 0)
+S ::= 'jk'(ID: 0) A(ID: 1) | 'ab'(ID: 1) S(ID: 0) | 'ab'(ID: 1);
+A ::= A(ID: 1) 'c'(ID: 2) | #"Ac|cd"(ID: 0,type: DFA);

@@ -7,13 +7,10 @@ use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner,
 use crate::{
     config::CompressionConfig,
     expression::ExpressionWithID,
-    node::{
-        Alternation, ExceptedWithID, FinalAlternation, FinalNode, FinalRhs, NoNestingNode,
-        NodeWithID, OperatorFlattenedNode, Rhs,
-    },
+    node::{Alternation, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs},
     regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     simplified_grammar::SimplifiedGrammar,
-    utils::{compile_one_regex_string, from_terminals_to_regex_string},
+    utils::from_terminals_to_regex_string,
     InternedStrings, RegexExtKind, SymbolKind,
 };
 
@@ -23,14 +20,12 @@ pub struct ValidatedGrammar {
     pub interned_strings: InternedStrings,
     pub start_symbol: SymbolU32,
     pub id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
-    pub id_to_excepted: FxHashMap<SymbolU32, FiniteStateAutomaton>,
 }
 
 impl ValidatedGrammar {
     pub fn simplify_grammar(
         mut self,
         config: CompressionConfig,
-        excepted_config: FiniteStateAutomatonConfig,
         regex_start_config: &kbnf_regex_automata::util::start::Config,
     ) -> SimplifiedGrammar {
         let expressions = Self::remove_unused_rules(self.expressions, self.start_symbol);
@@ -72,27 +67,18 @@ impl ValidatedGrammar {
             config,
             &mut self.id_to_regex,
         );
-        let expressions = Self::compile_excepteds(
-            expressions,
-            &mut self.interned_strings,
-            excepted_config,
-            &mut self.id_to_excepted,
-        );
-        let (interned_strings, id_to_regexes, expressions, start_symbol, id_to_excepted) =
-            Self::compact_interned(
-                self.start_symbol,
-                expressions,
-                self.interned_strings,
-                self.id_to_regex,
-                self.id_to_excepted,
-            );
 
+        let (interned_strings, id_to_regexes, expressions, start_symbol) = Self::compact_interned(
+            self.start_symbol,
+            expressions,
+            self.interned_strings,
+            self.id_to_regex,
+        );
         SimplifiedGrammar {
             expressions,
             start_symbol,
             interned_strings,
             id_to_regex: id_to_regexes,
-            id_to_excepted,
         }
     }
 
@@ -112,6 +98,7 @@ impl ValidatedGrammar {
             match node {
                 NodeWithID::Terminal(_) => {}
                 NodeWithID::RegexString(_) => {}
+                NodeWithID::EarlyEndRegexString(_) => {}
                 NodeWithID::Nonterminal(nonterminal) => {
                     if used_nonterminals.contains(nonterminal) {
                         continue;
@@ -138,12 +125,6 @@ impl ValidatedGrammar {
                 NodeWithID::Group(node) => {
                     stack.push(node);
                 }
-                NodeWithID::EXCEPT(excepted, _) => match excepted {
-                    ExceptedWithID::Terminal(_) => {}
-                    ExceptedWithID::Nonterminal(nonterminal) => {
-                        used_nonterminals.insert(*nonterminal);
-                    }
-                },
                 NodeWithID::Unknown => {
                     unreachable!("Unknown node. This should not happen.")
                 }
@@ -293,8 +274,8 @@ impl ValidatedGrammar {
                                 None,
                             );
                         }
-                        NodeWithID::EXCEPT(excepted, o) => {
-                            *new_parent = NoNestingNode::EXCEPT(*excepted, *o);
+                        NodeWithID::EarlyEndRegexString(value) => {
+                            *new_parent = NoNestingNode::EarlyEndRegexString(*value);
                         }
                         NodeWithID::Unknown => {
                             unreachable!("Unknown node. This should not happen.")
@@ -364,10 +345,10 @@ impl ValidatedGrammar {
                         stack.push((r, rhs.alternations.len() - 1)); // put the right node to the new alternation
                         stack.push((l, rhs.alternations.len() - 2)); // put the left node to the previous alternation
                     }
-                    NoNestingNode::EXCEPT(excepted, x) => {
+                    NoNestingNode::EarlyEndRegexString(value) => {
                         rhs.alternations[index]
                             .concatenations
-                            .push(OperatorFlattenedNode::EXCEPT(excepted, x));
+                            .push(OperatorFlattenedNode::EarlyEndRegexString(value));
                     }
                 }
             }
@@ -470,7 +451,6 @@ impl ValidatedGrammar {
             rules: &'a FxHashMap<SymbolU32, Rhs>,
             nonterminal_node: &'a OperatorFlattenedNode,
             nonterminal: SymbolU32,
-            visited: &FxHashSet<SymbolU32>,
             special_nonterminals: &mut FxHashMap<SymbolU32, RegexExtKind>,
         ) -> Vec<&'a OperatorFlattenedNode> {
             let mut last_nonterminal = nonterminal;
@@ -547,13 +527,7 @@ impl ValidatedGrammar {
             stack: &mut Vec<SymbolU32>,
             special_nonterminals: &mut FxHashMap<SymbolU32, RegexExtKind>,
         ) {
-            let chain = find_unit_chain(
-                rules,
-                nonterminal_node,
-                nonterminal,
-                visited,
-                special_nonterminals,
-            );
+            let chain = find_unit_chain(rules, nonterminal_node, nonterminal, special_nonterminals);
             visited.extend(chain.iter().take(chain.len() - 1).map(|node| match node {
                 OperatorFlattenedNode::Nonterminal(nonterminal) => *nonterminal,
                 _ => unreachable!(),
@@ -587,11 +561,10 @@ impl ValidatedGrammar {
             for a in rhs.alternations.iter() {
                 for c in a.concatenations.iter() {
                     if let &OperatorFlattenedNode::Nonterminal(nonterminal) = c {
-                        
                         if visited.contains(&nonterminal) {
                             continue;
                         }
-                        
+
                         update_nonterminal(
                             &rules,
                             c,
@@ -634,10 +607,6 @@ impl ValidatedGrammar {
                                             OperatorFlattenedNode::Nonterminal(nonterminal) => {
                                                 chains.get(&nonterminal).unwrap_or(&c).clone()
                                             }
-                                            OperatorFlattenedNode::EXCEPT(
-                                                ExceptedWithID::Nonterminal(nonterminal),
-                                                _,
-                                            ) => chains.get(&nonterminal).unwrap_or(&c).clone(),
                                             _ => c,
                                         })
                                         .collect::<Vec<OperatorFlattenedNode>>(),
@@ -750,17 +719,6 @@ impl ValidatedGrammar {
                                                         .unwrap_or(&nonterminal),
                                                 )
                                             }
-                                            OperatorFlattenedNode::EXCEPT(
-                                                ExceptedWithID::Nonterminal(nonterminal),
-                                                x,
-                                            ) => OperatorFlattenedNode::EXCEPT(
-                                                ExceptedWithID::Nonterminal(
-                                                    *lhs_to_lhs
-                                                        .get(&nonterminal)
-                                                        .unwrap_or(&nonterminal),
-                                                ),
-                                                x,
-                                            ),
                                             _ => concatenation,
                                         })
                                         .collect(),
@@ -990,114 +948,21 @@ impl ValidatedGrammar {
             .collect()
     }
 
-    fn compile_excepteds(
-        rules: FxHashMap<SymbolU32, Rhs>,
-        interned_strings: &mut InternedStrings,
-        config: FiniteStateAutomatonConfig,
-        id_to_excepteds: &mut FxHashMap<SymbolU32, FiniteStateAutomaton>,
-    ) -> FxHashMap<SymbolU32, FinalRhs> {
-        rules
-            .clone()
-            .into_iter()
-            .map(|(lhs, rhs)| {
-                let alternations = rhs
-                    .alternations
-                    .into_iter()
-                    .map(|a| {
-                        let mut concatenations: Vec<FinalNode> = vec![];
-                        for c in a.concatenations {
-                            let mut regex_string = String::new();
-                            match c {
-                                OperatorFlattenedNode::EXCEPT(excepted, x) => {
-                                    match excepted {
-                                        ExceptedWithID::Terminal(x) => {
-                                            let string =
-                                                interned_strings.terminals.resolve(x).unwrap();
-                                            regex_string.push_str(&regex_lite::escape(string));
-                                        }
-                                        ExceptedWithID::Nonterminal(x) => {
-                                            let terminals = rules.get(&x).unwrap();
-                                            if terminals.alternations.len() == 1 {
-                                                if let OperatorFlattenedNode::RegexString(x) =
-                                                    terminals
-                                                        .alternations
-                                                        .first()
-                                                        .unwrap()
-                                                        .concatenations
-                                                        .first()
-                                                        .unwrap()
-                                                {
-                                                    regex_string.push_str(
-                                                        interned_strings
-                                                            .regex_strings
-                                                            .resolve(*x)
-                                                            .unwrap(),
-                                                    )
-                                                } else {
-                                                    regex_string.push_str(
-                                                        &from_terminals_to_regex_string(
-                                                            &terminals.alternations,
-                                                            interned_strings,
-                                                        ),
-                                                    )
-                                                }
-                                            } else {
-                                                regex_string.push_str(
-                                                    &from_terminals_to_regex_string(
-                                                        &terminals.alternations,
-                                                        interned_strings,
-                                                    ),
-                                                )
-                                            }
-                                        }
-                                    }
-                                    let id =
-                                        interned_strings.excepteds.get_or_intern(&regex_string);
-                                    id_to_excepteds.insert(
-                                        id,
-                                        compile_one_regex_string(&regex_string, config.clone())
-                                            .unwrap(),
-                                    );
-                                    concatenations.push(FinalNode::EXCEPT(id, x));
-                                }
-                                OperatorFlattenedNode::Nonterminal(x) => {
-                                    concatenations.push(FinalNode::Nonterminal(x));
-                                }
-                                OperatorFlattenedNode::Terminal(x) => {
-                                    concatenations.push(FinalNode::Terminal(x));
-                                }
-                                OperatorFlattenedNode::RegexString(x) => {
-                                    concatenations.push(FinalNode::RegexString(x));
-                                }
-                            }
-                        }
-                        FinalAlternation { concatenations }
-                    })
-                    .collect();
-                (lhs, FinalRhs { alternations })
-            })
-            .collect()
-    }
-
     fn compact_interned(
         mut start_symbol: SymbolU32,
-        rules: FxHashMap<SymbolU32, FinalRhs>,
+        rules: FxHashMap<SymbolU32, Rhs>,
         interned: InternedStrings,
         id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
-        id_to_excepteds: FxHashMap<SymbolU32, FiniteStateAutomaton>,
     ) -> (
         InternedStrings,
         Vec<FiniteStateAutomaton>,
-        Vec<FinalRhs>,
+        Vec<Rhs>,
         SymbolU32,
-        Vec<FiniteStateAutomaton>,
     ) {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
-        let mut interned_excepteds: StringInterner<StringBackend> = StringInterner::default();
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
-        let mut new_id_to_excepteds = Vec::with_capacity(id_to_excepteds.len());
         let mut new_rules: Vec<_> = Vec::with_capacity(rules.len());
         let mut start_symbol_updated = false;
         for (lhs, rhs) in rules.into_iter() {
@@ -1111,19 +976,20 @@ impl ValidatedGrammar {
             new_rules.push(rhs);
         }
         for rhs in new_rules.iter_mut() {
-            for FinalAlternation { concatenations } in &mut rhs.alternations {
+            for Alternation { concatenations } in &mut rhs.alternations {
                 for concatenation in concatenations {
                     match concatenation {
-                        FinalNode::Nonterminal(nonterminal) => {
+                        OperatorFlattenedNode::Nonterminal(nonterminal) => {
                             *nonterminal = interned_nonterminals.get_or_intern(
                                 interned.nonterminals.resolve(*nonterminal).unwrap(),
                             );
                         }
-                        FinalNode::Terminal(terminal) => {
+                        OperatorFlattenedNode::Terminal(terminal) => {
                             *terminal = interned_terminals
                                 .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
                         }
-                        FinalNode::RegexString(regex) => {
+                        OperatorFlattenedNode::RegexString(regex)
+                        | OperatorFlattenedNode::EarlyEndRegexString(regex) => {
                             let new_id = interned_regexes
                                 .get_or_intern(interned.regex_strings.resolve(*regex).unwrap());
                             if new_id.to_usize() == new_id_to_regex.len() {
@@ -1131,15 +997,6 @@ impl ValidatedGrammar {
                             }
                             *regex = new_id;
                             // Should not fail since StringBackend is contiguous.
-                        }
-                        FinalNode::EXCEPT(excepted, _) => {
-                            let new_id = interned_excepteds
-                                .get_or_intern(interned.excepteds.resolve(*excepted).unwrap());
-                            if new_id.to_usize() == new_id_to_excepteds.len() {
-                                new_id_to_excepteds
-                                    .push(id_to_excepteds.get(excepted).unwrap().clone());
-                            }
-                            *excepted = new_id;
                         }
                     }
                 }
@@ -1150,12 +1007,10 @@ impl ValidatedGrammar {
                 nonterminals: interned_nonterminals,
                 terminals: interned_terminals,
                 regex_strings: interned_regexes,
-                excepteds: interned_excepteds,
             },
             new_id_to_regex,
             new_rules,
             start_symbol,
-            new_id_to_excepteds,
         )
     }
 }

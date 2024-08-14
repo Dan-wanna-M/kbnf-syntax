@@ -2,9 +2,9 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use nom::bytes::complete::{escaped, escaped_transform, take, take_until, take_while_m_n};
-use nom::character::complete::{none_of, one_of};
-use nom::combinator::{map_res, opt, value};
+use nom::bytes::complete::{escaped, take_until};
+use nom::character::complete::none_of;
+use nom::combinator::opt;
 use nom::{
     branch::alt,
     bytes::complete::tag,
@@ -17,7 +17,6 @@ use nom::{
 };
 use parse_hyperlinks::take_until_unbalanced;
 
-use crate::node::Excepted;
 use crate::{
     node::{RegexExtKind, SymbolKind},
     Expression, Node,
@@ -63,50 +62,95 @@ fn parse_rhs(input: &str) -> Res<&str, Node> {
     Ok((input, rhs))
 }
 
-fn unescape<'a>(input:&'a str,context:&'a str)->Res<&'a str,String>
-{
-    Ok((context,unescaper::unescape(input).map_err(|e| Err::Error(VerboseError {
-        errors: vec![(
-            input,
-            VerboseErrorKind::Context("Invalid escape sequence"),
-        )],
-    }))?))
+fn unescape<'a>(input: &'a str, context: &'a str) -> Res<&'a str, String> {
+    Ok((
+        context,
+        unescaper::unescape(input).map_err(|_| {
+            Err::Error(VerboseError {
+                errors: vec![(input, VerboseErrorKind::Context("Invalid escape sequence"))],
+            })
+        })?,
+    ))
 }
 
 fn parse_terminal(input: &str) -> Res<&str, Node> {
     let (input, string) = alt((
         delimited(
             complete::char('\''),
-            opt(escaped(none_of("\\\'"), '\\', nom::character::complete::anychar)),
+            opt(escaped(
+                none_of("\\\'"),
+                '\\',
+                nom::character::complete::anychar,
+            )),
             complete::char('\''),
         ),
         delimited(
             complete::char('"'),
-            opt(escaped(none_of("\\\""), '\\', nom::character::complete::anychar)),
+            opt(escaped(
+                none_of("\\\""),
+                '\\',
+                nom::character::complete::anychar,
+            )),
             complete::char('"'),
         ),
     ))(input)?;
     let string = string.unwrap_or("");
-    let (_, string) = unescape(string,input)?;
+    let (_, string) = unescape(string, input)?;
     Ok((input, Node::Terminal(string.to_string())))
 }
 
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
-    let (input, string) = alt((
+    let mut early = false;
+    let result: Result<(&str, Option<&str>), Err<VerboseError<&str>>> = alt((
         delimited(
             tag("#'"),
-            opt(escaped(none_of("\\\'"), '\\', nom::character::complete::anychar)),
+            opt(escaped(
+                none_of("\\\'"),
+                '\\',
+                nom::character::complete::anychar,
+            )),
             complete::char('\''),
         ),
         delimited(
             tag("#\""),
-            opt(escaped(none_of("\\\""), '\\', nom::character::complete::anychar)),
+            opt(escaped(
+                none_of("\\\""),
+                '\\',
+                nom::character::complete::anychar,
+            )),
             complete::char('"'),
         ),
-    ))(input)?;
+    ))(input);
+    let (input, string) = result.or_else(|_| {
+        early = true;
+        alt((
+            delimited(
+                tag("#e'"),
+                opt(escaped(
+                    none_of("\\\'"),
+                    '\\',
+                    nom::character::complete::anychar,
+                )),
+                complete::char('\''),
+            ),
+            delimited(
+                tag("#e\""),
+                opt(escaped(
+                    none_of("\\\""),
+                    '\\',
+                    nom::character::complete::anychar,
+                )),
+                complete::char('"'),
+            ),
+        ))(input)
+    })?;
     let string = string.unwrap_or("");
-    let (_, string) = unescape(string,input)?;
-    let node = Node::RegexString(format!(r"\A{string}\z"));
+    let (_, string) = unescape(string, input)?;
+    let node = if early {
+        Node::EarlyEndRegexString(format!(r"\A{string}\z"))
+    } else {
+        Node::RegexString(format!(r"\A{string}\z"))
+    };
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(&string)
         .map_err(|_: regex_syntax::ast::Error| {
@@ -120,7 +164,7 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
             })
         })
         .map(|_| (input, node))
-    }
+}
 
 fn parse_nonterminal(input: &str) -> Res<&str, Node> {
     let (input, symbol) = preceded(
@@ -129,53 +173,6 @@ fn parse_nonterminal(input: &str) -> Res<&str, Node> {
     )(input)?;
 
     Ok((input, Node::Nonterminal(symbol.to_string())))
-}
-
-fn parse_except(input: &str) -> Res<&str, Node> {
-    let (input, (mut excepted, number_str)) = preceded(
-        tag("except!"),
-        delimited(
-            complete::multispace0,
-            delimited(
-                complete::char('('),
-                pair(
-                    delimited(
-                        complete::multispace0,
-                        alt((parse_nonterminal, parse_terminal)),
-                        complete::multispace0,
-                    ),
-                    opt(preceded(
-                        tag(","),
-                        delimited(
-                            complete::multispace0,
-                            complete::digit0,
-                            complete::multispace0,
-                        ),
-                    )),
-                ),
-                complete::char(')'),
-            ),
-            complete::multispace0,
-        ),
-    )(input)?;
-    Ok((
-        input,
-        Node::EXCEPT(
-            {
-                match &mut excepted {
-                    Node::Nonterminal(s) => Excepted::Nonterminal(std::mem::take(s)),
-                    Node::Terminal(s) => Excepted::Terminal(std::mem::take(s)),
-                    _ => Err(Err::Error(VerboseError {
-                        errors: vec![(
-                            input,
-                            VerboseErrorKind::Context("Expected terminal or nonterminal"),
-                        )],
-                    }))?,
-                }
-            },
-            number_str.map(|x: &str| x.parse::<usize>().unwrap()),
-        ),
-    ))
 }
 
 fn parse_multiple(input: &str) -> Res<&str, Node> {
@@ -196,7 +193,6 @@ fn parse_node(input: &str) -> Res<&str, Node> {
             parse_repeat,
             parse_terminal,
             parse_regex_string,
-            parse_except,
             parse_nonterminal,
         )),
     )(input)?;
@@ -456,21 +452,15 @@ string ::= #'"([^\\"\u0000-\u001f]|\\["\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*"';
     }
 
     #[test]
-    fn except_special_nonterminal1() {
+    fn regexes() {
         let source = r#"
-             except ::= except!(    '\n\n'   ,   1);
-        "#;
-        let result = parse_expressions(source).unwrap();
-        assert_yaml_snapshot!(result)
-    }
-
-    #[test]
-    fn except_special_nonterminal2() {
-        let source = r#"
-             except ::= except!(    '\n\n');
-        "#;
-        let result = parse_expressions(source).unwrap();
-        assert_yaml_snapshot!(result)
+            filter ::= #'[a-z]+';
+            filter2 ::= #"[a-z]+";
+            filter3 ::= #e"[a-z]+";
+            filter4 ::= #e'[a-z]+';
+            "#;
+        let result = parse_expressions(source);
+        assert_yaml_snapshot!(result.unwrap())
     }
     #[test]
     #[should_panic]
@@ -496,22 +486,6 @@ string ::= #'"([^\\"\u0000-\u001f]|\\["\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*"';
              except ::= #"";
         "#;
         let _ = parse_expressions(source).unwrap();
-    }
-
-    #[test]
-    fn comment_except() {
-        let source = r#"
-        (*114514*)
-            except ::= except!(    '\n\n');  (*114514*)
-            (*114
-            
-            except ::= except!(    '\n\n');
-            
-            514*)
-            (*114514*)
-        "#;
-        let result = parse_expressions(source).unwrap();
-        assert_yaml_snapshot!(result)
     }
     #[test]
     fn ensure_drop_work_correctly_for_node() {

@@ -42,7 +42,7 @@ use std::{iter::zip, mem};
 
 use expression::{Expression, ExpressionWithID};
 pub use grammar::Grammar;
-use node::{Excepted, ExceptedWithID, NodeWithID};
+use node::NodeWithID;
 pub use node::{Node, RegexExtKind, SymbolKind};
 use string_interner::{backend::StringBackend, symbol::SymbolU32, StringInterner};
 
@@ -62,7 +62,6 @@ pub struct InternedStrings {
     pub nonterminals: StringInterner<StringBackend<SymbolU32>>,
     pub terminals: StringInterner<StringBackend<SymbolU32>>,
     pub regex_strings: StringInterner<StringBackend<SymbolU32>>,
-    pub excepteds: StringInterner<StringBackend<SymbolU32>>,
 }
 
 /// Get and parse EBNF grammar source into [Grammar], returns [Err] when given grammar is invalid.
@@ -100,47 +99,38 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
         while let Some((mut node, parent)) = stack.pop() {
             match &mut node {
                 Node::Terminal(terminal) => {
+                    let terminal = std::mem::take(terminal);
                     *parent = NodeWithID::Terminal(terminals.get_or_intern(&terminal));
-                    // SAFETY: terminal is never used after this point
-                    // and the `mem::forget(node)` ensures we do not double free
-                    unsafe { (terminal as *mut String).drop_in_place() };
                 }
                 Node::RegexString(regex_string) => {
+                    let regex_string = std::mem::take(regex_string);
                     *parent = NodeWithID::RegexString(regex_strings.get_or_intern(&regex_string));
-                    // SAFETY: regex_string is never used after this point
-                    // and the `mem::forget(node)` ensures we do not double free
-                    unsafe { (regex_string as *mut String).drop_in_place() };
+                }
+                Node::EarlyEndRegexString(regex_string) => {
+                    let regex_string = std::mem::take(regex_string);
+                    *parent =
+                        NodeWithID::EarlyEndRegexString(regex_strings.get_or_intern(&regex_string));
                 }
                 Node::Nonterminal(nonterminal) => {
+                    let nonterminal = std::mem::take(nonterminal);
                     *parent = NodeWithID::Nonterminal(nonterminals.get_or_intern(&nonterminal));
-                    // SAFETY: nonterminal is never used after this point
-                    // and the `mem::forget(node)` ensures we do not double free
-                    unsafe { (nonterminal as *mut String).drop_in_place() };
                 }
                 Node::Multiple(nodes) => {
+                    let nodes = std::mem::take(nodes);
                     let mut buffer = Vec::with_capacity(nodes.len());
                     buffer.resize(nodes.len(), NodeWithID::Unknown);
                     *parent = NodeWithID::Multiple(buffer);
                     match parent {
                         NodeWithID::Multiple(new_nodes) => {
-                            for (node, new_parent) in zip(nodes.iter_mut(), new_nodes.iter_mut()) {
-                                // SAFETY: node is never used after this point
-                                // and the `mem::forget(node)` after the match ensures we do not double free nodes themselves
-                                stack.push((unsafe { (node as *mut Node).read() }, new_parent));
+                            for (node, new_parent) in zip(nodes, new_nodes.iter_mut()) {
+                                stack.push((node, new_parent));
                             }
-                            while let Some(node) = nodes.pop() {
-                                mem::forget(node);
-                            }
-                            // SAFETY: `mem::forget(node)` after the match ensures we do not double free nodes(the vector)
-                            // and nodes are never used after this point
-                            unsafe { (nodes as *mut Vec<Node>).drop_in_place() };
                         }
                         _ => unreachable!(),
                     }
                 }
                 Node::RegexExt(node, e) => {
-                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the box
-                    let node = unsafe { (node as *mut Box<Node>).read() };
+                    let node = mem::replace(node, Box::new(Node::Terminal(String::new())));
                     *parent = NodeWithID::RegexExt(Box::new(NodeWithID::Unknown), *e);
                     match parent {
                         NodeWithID::RegexExt(new_node, _) => {
@@ -150,10 +140,9 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     }
                 }
                 Node::Symbol(lhs, symbol, rhs) => {
-                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the lhs box
-                    let lhs = unsafe { (lhs as *mut Box<Node>).read() };
+                    let lhs = mem::replace(lhs, Box::new(Node::Terminal(String::new())));
                     // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the rhs box
-                    let rhs = unsafe { (rhs as *mut Box<Node>).read() };
+                    let rhs = mem::replace(rhs, Box::new(Node::Terminal(String::new())));
                     *parent = NodeWithID::Symbol(
                         Box::new(NodeWithID::Unknown),
                         *symbol,
@@ -168,8 +157,7 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     }
                 }
                 Node::Group(node) => {
-                    // SAFETY: The `mem::forget(node)` after the match ensures we do not double free the box
-                    let node = unsafe { (node as *mut Box<Node>).read() };
+                    let node = mem::replace(node, Box::new(Node::Terminal(String::new())));
                     *parent = NodeWithID::Group(Box::new(NodeWithID::Unknown));
                     match parent {
                         NodeWithID::Group(new_node) => {
@@ -178,28 +166,7 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                         _ => unreachable!(),
                     }
                 }
-                Node::EXCEPT(excepted, o) => match excepted {
-                    Excepted::Terminal(terminal) => {
-                        *parent = NodeWithID::EXCEPT(
-                            ExceptedWithID::Terminal(terminals.get_or_intern(&terminal)),
-                            *o,
-                        );
-                        // SAFETY: terminal is never used after this point
-                        // and the `mem::forget(node)` ensures we do not double free
-                        unsafe { (terminal as *mut String).drop_in_place() };
-                    }
-                    Excepted::Nonterminal(nonterminal) => {
-                        *parent = NodeWithID::EXCEPT(
-                            ExceptedWithID::Nonterminal(nonterminals.get_or_intern(&nonterminal)),
-                            *o,
-                        );
-                        // SAFETY: nonterminal is never used after this point
-                        // and the `mem::forget(node)` ensures we do not double free
-                        unsafe { (nonterminal as *mut String).drop_in_place() };
-                    }
-                },
             }
-            mem::forget(node);
         }
         new_expressions.push((lhs, rhs));
     }
@@ -208,7 +175,6 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
             nonterminals,
             terminals,
             regex_strings,
-            excepteds: StringInterner::<StringBackend<SymbolU32>>::new(), // It will be filled after semantic checks
         },
         new_expressions
             .into_iter()

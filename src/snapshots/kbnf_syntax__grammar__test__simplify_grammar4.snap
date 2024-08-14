@@ -2,7 +2,7 @@
 source: src/grammar.rs
 expression: "format!(\"{:?}\", result)"
 ---
-start_symbol: S(ID: 2)
-S_repeat1_0_group_0_repeat0_0 ::= S_repeat1_0_group_0_repeat0_0(ID: 0) 'cd'(ID: 0) | 'cd'(ID: 0);
-S_repeat1_0 ::= S_repeat1_0_group_0_repeat0_0(ID: 0) | S_repeat1_0(ID: 1) S_repeat1_0_group_0_repeat0_0(ID: 0);
+start_symbol: S(ID: 0)
 S ::= S_repeat1_0(ID: 1);
+S_repeat1_0 ::= S_repeat1_0_group_0_repeat0_0(ID: 2) | S_repeat1_0(ID: 1) S_repeat1_0_group_0_repeat0_0(ID: 2);
+S_repeat1_0_group_0_repeat0_0 ::= S_repeat1_0_group_0_repeat0_0(ID: 2) 'cd'(ID: 0) | 'cd'(ID: 0);

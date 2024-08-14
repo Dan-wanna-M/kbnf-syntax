@@ -14,7 +14,7 @@ pub enum Node {
     RegexExt(Box<Node>, RegexExtKind),
     Symbol(Box<Node>, SymbolKind, Box<Node>),
     Group(Box<Node>),
-    EXCEPT(Excepted, Option<usize>),
+    EarlyEndRegexString(String),
 }
 
 impl Drop for Node {
@@ -41,7 +41,7 @@ impl Drop for Node {
                 let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
                 stack.push(node);
             }
-            Node::EXCEPT(_e, _) => {}
+            Node::EarlyEndRegexString(_) => {}
         };
         while let Some(mut node) = stack.pop() {
             match &mut node {
@@ -79,7 +79,7 @@ pub enum NodeWithID {
     RegexExt(Box<NodeWithID>, RegexExtKind),
     Symbol(Box<NodeWithID>, SymbolKind, Box<NodeWithID>),
     Group(Box<NodeWithID>),
-    EXCEPT(ExceptedWithID, Option<usize>),
+    EarlyEndRegexString(SymbolU32),
     Unknown,
 }
 
@@ -107,7 +107,7 @@ impl Drop for NodeWithID {
                 let node = mem::replace(node.as_mut(), NodeWithID::Unknown);
                 stack.push(node);
             }
-            NodeWithID::EXCEPT(_e, _) => {}
+            NodeWithID::EarlyEndRegexString(_) => {}
             NodeWithID::Unknown => {}
         };
         while let Some(mut node) = stack.pop() {
@@ -146,7 +146,7 @@ pub(crate) enum NoNestingNode {
     Nonterminal(SymbolU32),
     Concatenations(Vec<NoNestingNode>),
     Alternations(Vec<NoNestingNode>),
-    EXCEPT(ExceptedWithID, Option<usize>),
+    EarlyEndRegexString(SymbolU32),
 }
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
@@ -154,15 +154,7 @@ pub enum OperatorFlattenedNode {
     Terminal(SymbolU32),
     RegexString(SymbolU32),
     Nonterminal(SymbolU32),
-    EXCEPT(ExceptedWithID, Option<usize>),
-}
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
-pub enum FinalNode {
-    Terminal(SymbolU32),
-    RegexString(SymbolU32),
-    Nonterminal(SymbolU32),
-    EXCEPT(SymbolU32, Option<usize>),
+    EarlyEndRegexString(SymbolU32),
 }
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Rhs {
@@ -172,25 +164,6 @@ pub struct Rhs {
 pub struct Alternation {
     pub concatenations: Vec<OperatorFlattenedNode>,
 }
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub struct FinalRhs {
-    pub alternations: Vec<FinalAlternation>,
-}
-#[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
-pub struct FinalAlternation {
-    pub concatenations: Vec<FinalNode>,
-}
-#[derive(Debug, Clone, Serialize)]
-pub enum Excepted {
-    Terminal(String),
-    Nonterminal(String),
-}
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord)]
-pub enum ExceptedWithID {
-    Terminal(SymbolU32),
-    Nonterminal(SymbolU32),
-}
-
 #[derive(Debug, Clone, Serialize, Copy, PartialEq, Eq, Hash)]
 pub enum RegexExtKind {
     Repeat0,

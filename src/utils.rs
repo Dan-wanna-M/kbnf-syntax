@@ -11,11 +11,13 @@ pub fn compile_one_regex_string(
     config: FiniteStateAutomatonConfig,
 ) -> Result<FiniteStateAutomaton, SemanticError> {
     let regex: Result<FiniteStateAutomaton, SemanticError> = match config {
-        FiniteStateAutomatonConfig::Dfa(ref config) => kbnf_regex_automata::dfa::dense::Builder::new()
-            .configure(config.clone())
-            .build(regex_string)
-            .map(FiniteStateAutomaton::Dfa)
-            .map_err(SemanticError::DfaRegexBuildError),
+        FiniteStateAutomatonConfig::Dfa(ref config) => {
+            kbnf_regex_automata::dfa::dense::Builder::new()
+                .configure(config.clone())
+                .build(regex_string)
+                .map(FiniteStateAutomaton::Dfa)
+                .map_err(SemanticError::DfaRegexBuildError)
+        }
     };
     regex
 }
@@ -31,7 +33,7 @@ pub fn from_terminals_to_regex_string(
             OperatorFlattenedNode::Terminal(x) => x,
             _ => unreachable!(),
         })
-        .map(|x|regex_lite::escape(interned_strings.terminals.resolve(*x).unwrap()))
+        .map(|x| regex_lite::escape(interned_strings.terminals.resolve(*x).unwrap()))
         .collect::<Vec<_>>()
         .join("|")
 }

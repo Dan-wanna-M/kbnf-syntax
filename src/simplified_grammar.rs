@@ -3,15 +3,18 @@ use std::fmt::Display;
 use serde::Serialize;
 use string_interner::{symbol::SymbolU32, Symbol};
 
-use crate::{node::{FinalNode, FinalRhs}, regex::FiniteStateAutomaton, InternedStrings};
+use crate::{
+    node::{OperatorFlattenedNode, Rhs},
+    regex::FiniteStateAutomaton,
+    InternedStrings,
+};
 
 #[derive(Clone)]
 pub struct SimplifiedGrammar {
-    pub expressions: Vec<FinalRhs>,
+    pub expressions: Vec<Rhs>,
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
     pub id_to_regex: Vec<FiniteStateAutomaton>,
-    pub id_to_excepted: Vec<FiniteStateAutomaton>,
 }
 
 impl SimplifiedGrammar {
@@ -41,23 +44,23 @@ impl Display for SimplifiedGrammar {
             for (j, alternation) in rhs.alternations.iter().enumerate() {
                 for (i, concatenation) in alternation.concatenations.iter().enumerate() {
                     match concatenation {
-                        FinalNode::Terminal(value) => {
+                        OperatorFlattenedNode::Terminal(value) => {
                             let value = self.interned_strings.terminals.resolve(*value).unwrap();
                             buffer.push_str(&format!("'{}'", value));
                         }
-                        FinalNode::RegexString(value) => {
+                        OperatorFlattenedNode::RegexString(value) => {
                             let value =
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
                             buffer.push_str(&format!("#\"{}\"", value));
                         }
-                        FinalNode::Nonterminal(value) => {
+                        OperatorFlattenedNode::EarlyEndRegexString(value) => {
+                            let value =
+                                self.interned_strings.regex_strings.resolve(*value).unwrap();
+                            buffer.push_str(&format!("#e\"{}\"", value));
+                        }
+                        OperatorFlattenedNode::Nonterminal(value) => {
                             let value = self.interned_strings.nonterminals.resolve(*value).unwrap();
                             buffer.push_str(value);
-                        }
-                        FinalNode::EXCEPT(excepted, r) => {
-                            let value = self.interned_strings.excepteds.resolve(*excepted).unwrap();
-                            let r = r.map(|r| format!(",{}", r)).unwrap_or_default();
-                            buffer.push_str(&format!("except!(#'{}'{r})", value));
                         }
                     }
                     if i + 1 < alternation.concatenations.len() {
@@ -96,11 +99,11 @@ impl std::fmt::Debug for SimplifiedGrammar {
             for (j, alternation) in rhs.alternations.iter().enumerate() {
                 for (i, concatenation) in alternation.concatenations.iter().enumerate() {
                     match concatenation {
-                        FinalNode::Terminal(value) => {
+                        OperatorFlattenedNode::Terminal(value) => {
                             let terminal = self.interned_strings.terminals.resolve(*value).unwrap();
                             buffer.push_str(&format!("'{}'(ID: {})", terminal, value.to_usize()));
                         }
-                        FinalNode::RegexString(value) => {
+                        OperatorFlattenedNode::RegexString(value) => {
                             let regex =
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
                             let regex_type = match self.id_to_regex[value.to_usize()] {
@@ -113,23 +116,23 @@ impl std::fmt::Debug for SimplifiedGrammar {
                                 regex_type
                             ));
                         }
-                        FinalNode::Nonterminal(value) => {
-                            let nonterminal =
-                                self.interned_strings.nonterminals.resolve(*value).unwrap();
-                            buffer.push_str(&format!("{}(ID: {})", nonterminal, value.to_usize()));
-                        }
-                        FinalNode::EXCEPT(excepted, r) => {
-                            let value = self.interned_strings.excepteds.resolve(*excepted).unwrap();
-                            let r = r.map(|r| format!(",{}", r)).unwrap_or_default();
-                            let regex_type = match self.id_to_excepted[excepted.to_usize()] {
+                        OperatorFlattenedNode::EarlyEndRegexString(value) => {
+                            let regex =
+                                self.interned_strings.regex_strings.resolve(*value).unwrap();
+                            let regex_type = match self.id_to_regex[value.to_usize()] {
                                 FiniteStateAutomaton::Dfa(_) => "DFA",
                             };
                             buffer.push_str(&format!(
-                                "except!(#'{}'{r})(ID: {},type: {})",
-                                value,
-                                excepted.to_usize(),
+                                "#e\"{}\"(ID: {},type: {})",
+                                regex,
+                                value.to_usize(),
                                 regex_type
                             ));
+                        }
+                        OperatorFlattenedNode::Nonterminal(value) => {
+                            let nonterminal =
+                                self.interned_strings.nonterminals.resolve(*value).unwrap();
+                            buffer.push_str(&format!("{}(ID: {})", nonterminal, value.to_usize()));
                         }
                     }
                     if i + 1 < alternation.concatenations.len() {

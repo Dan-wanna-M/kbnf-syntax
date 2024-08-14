@@ -7,7 +7,7 @@ use string_interner::symbol::SymbolU32;
 
 use crate::{
     expression::ExpressionWithID,
-    node::{ExceptedWithID, NodeWithID},
+    node::NodeWithID,
     regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     semantic_error::SemanticError,
     utils::compile_one_regex_string,
@@ -33,14 +33,12 @@ impl Grammar {
             .get(start_symbol)
             .unwrap();
         self.check_undefined_nonterminal(start_symbol)?;
-        self.check_invalid_excepted_nonterminal()?;
         let regexes = self.compile_regex_string(regex_config)?;
         Ok(ValidatedGrammar {
             expressions: self.expressions,
             start_symbol: start,
             interned_strings: self.interned_strings,
             id_to_regex: regexes,
-            id_to_excepted: FxHashMap::default(),
         })
     }
 
@@ -56,6 +54,7 @@ impl Grammar {
                     match node {
                         NodeWithID::Terminal(_) => {}
                         NodeWithID::RegexString(_) => {}
+                        NodeWithID::EarlyEndRegexString(_) => {}
                         NodeWithID::Nonterminal(nonterminal) => {
                             if !defined_nonterminals.contains(nonterminal) {
                                 return Err(Box::new(SemanticError::UndefinedNonterminal(
@@ -80,20 +79,6 @@ impl Grammar {
                         NodeWithID::Group(node) => {
                             stack.push(node);
                         }
-                        NodeWithID::EXCEPT(excepted, _) => match excepted {
-                            ExceptedWithID::Terminal(_) => {}
-                            ExceptedWithID::Nonterminal(nonterminal) => {
-                                if !defined_nonterminals.contains(nonterminal) {
-                                    return Err(Box::new(SemanticError::UndefinedNonterminal(
-                                        interned_strings
-                                            .nonterminals
-                                            .resolve(*nonterminal)
-                                            .unwrap()
-                                            .to_string(),
-                                    )));
-                                }
-                            }
-                        },
                         NodeWithID::Unknown => unreachable!(),
                     }
                 }
@@ -114,92 +99,6 @@ impl Grammar {
             &self.expressions,
             &self.interned_strings,
         )
-    }
-
-    fn check_invalid_excepted_nonterminal(&self) -> Result<(), Box<SemanticError>> {
-        for expression in self.expressions.iter() {
-            let mut stack = vec![&expression.rhs];
-            while let Some(node) = stack.pop() {
-                match node {
-                    NodeWithID::Terminal(_) => {}
-                    NodeWithID::RegexString(_) => {}
-                    NodeWithID::Nonterminal(_) => {}
-                    NodeWithID::Multiple(nodes) => {
-                        stack.extend(nodes);
-                    }
-                    NodeWithID::RegexExt(node, _) => {
-                        stack.push(node);
-                    }
-                    NodeWithID::Symbol(lhs, _, rhs) => {
-                        stack.push(lhs);
-                        stack.push(rhs);
-                    }
-                    NodeWithID::Group(node) => {
-                        stack.push(node);
-                    }
-                    NodeWithID::EXCEPT(excepted, _) => match excepted {
-                        ExceptedWithID::Terminal(x) => {
-                            if Some(*x) == self.interned_strings.terminals.get("") {
-                                return Err(Box::new(SemanticError::InvalidExceptedTerminal(
-                                    self.interned_strings
-                                        .terminals
-                                        .resolve(*x)
-                                        .unwrap()
-                                        .to_string(),
-                                )));
-                            }
-                        }
-                        ExceptedWithID::Nonterminal(nonterminal) => {
-                            for expression in self
-                                .expressions
-                                .iter()
-                                .filter(|expression| expression.lhs == *nonterminal)
-                            {
-                                let mut stack = vec![&expression.rhs];
-                                while let Some(node) = stack.pop() {
-                                    match node {
-                                        NodeWithID::Terminal(x) => {
-                                            if Some(*x) == self.interned_strings.terminals.get("") {
-                                                return Err(Box::new(
-                                                    SemanticError::InvalidExceptedTerminal(
-                                                        self.interned_strings
-                                                            .terminals
-                                                            .resolve(*x)
-                                                            .unwrap()
-                                                            .to_string(),
-                                                    ),
-                                                ));
-                                            }
-                                        }
-                                        NodeWithID::Multiple(nodes) => {
-                                            stack.extend(nodes);
-                                        }
-                                        NodeWithID::Symbol(lhs, _, rhs) => {
-                                            stack.push(lhs);
-                                            stack.push(rhs);
-                                        }
-                                        NodeWithID::Unknown => unreachable!(),
-                                        _ => {
-                                            return Err(Box::new(
-                                                SemanticError::InvalidExceptedNonterminal(
-                                                    self.interned_strings
-                                                        .nonterminals
-                                                        .resolve(*nonterminal)
-                                                        .unwrap()
-                                                        .to_string(),
-                                                ),
-                                            ));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    NodeWithID::Unknown => unreachable!(),
-                }
-            }
-        }
-        Ok(())
     }
 
     fn compile_regex_string(
@@ -284,33 +183,6 @@ mod test {
             .unwrap();
     }
     #[test]
-    fn escaped_excepted_nonterminal() {
-        let source = r#"
-             except ::= except!(A);
-             A ::= 'a'|'{';
-        "#;
-        let _ = get_grammar(source)
-            .unwrap()
-            .validate_grammar(
-                "except",
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            )
-            .unwrap();
-    }
-    #[test]
-    fn escaped_excepted_nonterminal2() {
-        let source = r#"
-             except ::= except!('{');
-        "#;
-        let _ = get_grammar(source)
-            .unwrap()
-            .validate_grammar(
-                "except",
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            )
-            .unwrap();
-    }
-    #[test]
     #[should_panic]
     fn invalid_excepted_nonterminal2() {
         let source = r#"
@@ -341,31 +213,6 @@ mod test {
             )
             .unwrap();
     }
-    #[test]
-    fn simplify_grammar() {
-        let source = r#"
-            S ::= 'ab'S? | 'jk'(((A))) | 'ef'(B)*| 'a''b''c'|'abc'|except!('c',10)|except!(C);
-            A ::= 'cd'|'cd'|A'c'|'Ac';
-            B ::= ('a'B)?;
-            C ::= 'dc';
-        "#;
-        let result = get_grammar(source)
-            .unwrap()
-            .validate_grammar(
-                "S",
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            )
-            .unwrap()
-            .simplify_grammar(
-                CompressionConfig {
-                    min_terminals: 2,
-                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new(),
-            );
-        assert_snapshot!(format!("{:?}", result))
-    }
 
     #[test]
     fn simplify_grammar2() {
@@ -386,7 +233,6 @@ mod test {
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -410,7 +256,6 @@ mod test {
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -434,7 +279,6 @@ mod test {
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -458,7 +302,6 @@ mod test {
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -467,8 +310,9 @@ mod test {
     #[test]
     fn simplify_grammar6() {
         let source = r#"
-            S ::= 'cd'A;
+            S ::= 'cd'A B;
             A ::= #"";
+            B ::= #e'cd';
         "#;
         let result = get_grammar(source)
             .unwrap()
@@ -482,7 +326,6 @@ mod test {
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -506,30 +349,6 @@ mod test {
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new(),
-            );
-        assert_snapshot!(format!("{:?}", result))
-    }
-    #[test]
-    fn simplify_grammar10() {
-        let source = r#"
-            S ::= except!('c')|except!('c',10)|except!(A);
-            A ::= 'a'|'B'|'qa';
-        "#;
-        let result = get_grammar(source)
-            .unwrap()
-            .validate_grammar(
-                "S",
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-            )
-            .unwrap()
-            .simplify_grammar(
-                CompressionConfig {
-                    min_terminals: 2,
-                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -574,7 +393,6 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
                     min_terminals: 3,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -596,7 +414,6 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -618,7 +435,6 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -640,7 +456,6 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
@@ -663,14 +478,13 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
                     min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new().anchored(kbnf_regex_automata::Anchored::Yes),
+                &kbnf_regex_automata::util::start::Config::new()
+                    .anchored(kbnf_regex_automata::Anchored::Yes),
             );
         assert_snapshot!(format!("{:?}", result))
     }
     #[test]
-    fn indirect_right_recursive_grammar()
-    {
+    fn indirect_right_recursive_grammar() {
         let source = "start::=A'\n';
         A::='x'|'x' B;
         B::='y'|'y' A;";
@@ -686,14 +500,13 @@ start ::= 'Today, I want to eat ' __choice_food_0 '\n' "My food's ID is " __choi
                     min_terminals: 3,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new().anchored(kbnf_regex_automata::Anchored::Yes),
+                &kbnf_regex_automata::util::start::Config::new()
+                    .anchored(kbnf_regex_automata::Anchored::Yes),
             );
         assert_snapshot!(format!("{:?}", result))
     }
     #[test]
-    fn linked_list()
-    {
+    fn linked_list() {
         let source = r#"__schema_json_1_next_0 ::= __schema_json_1;
 
 start ::= "```json\n"__schema_json_1"```\n";
@@ -724,8 +537,8 @@ __schema_json_1_next ::=
                     min_terminals: 3,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
-                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
-                &kbnf_regex_automata::util::start::Config::new().anchored(kbnf_regex_automata::Anchored::Yes),
+                &kbnf_regex_automata::util::start::Config::new()
+                    .anchored(kbnf_regex_automata::Anchored::Yes),
             );
         assert_snapshot!(format!("{:?}", result))
     }

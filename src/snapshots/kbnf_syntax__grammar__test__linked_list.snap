@@ -2,17 +2,17 @@
 source: src/grammar.rs
 expression: "format!(\"{:?}\", result)"
 ---
-start_symbol: start(ID: 2)
+start_symbol: start(ID: 0)
+start ::= '```json
+'(ID: 0) __schema_json_1(ID: 2) '```
+'(ID: 1);
+__schema_json_1_next ::= __schema_json_1(ID: 2) | 'null'(ID: 2);
 __schema_json_1 ::= #"\A\A\{( |
-||	)*\z\z"(ID: 0,type: DFA) '"value"'(ID: 0) #"\A\A( |
+||	)*\z\z"(ID: 0,type: DFA) '"value"'(ID: 3) #"\A\A( |
 ||	)*:( |
 ||	)*\z\z"(ID: 1,type: DFA) #"\A\A-?(0|[1-9]\d*)\z\z"(ID: 2,type: DFA) #"\A\A( |
 ||	)*,( |
-||	)*\z\z"(ID: 3,type: DFA) '"next"'(ID: 1) #"\A\A( |
+||	)*\z\z"(ID: 3,type: DFA) '"next"'(ID: 4) #"\A\A( |
 ||	)*:( |
 ||	)*\z\z"(ID: 1,type: DFA) __schema_json_1_next(ID: 1) #"\A\A( |
 ||	)*\}\z\z"(ID: 4,type: DFA);
-__schema_json_1_next ::= __schema_json_1(ID: 0) | 'null'(ID: 2);
-start ::= '```json
-'(ID: 3) __schema_json_1(ID: 0) '```
-'(ID: 4);

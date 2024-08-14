@@ -33,5 +33,5 @@ impl FiniteStateAutomaton {
 
 #[derive(Debug, Clone)]
 pub enum FiniteStateAutomatonConfig {
-    Dfa(dfa::dense::Config)
+    Dfa(dfa::dense::Config),
 }
