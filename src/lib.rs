@@ -62,6 +62,7 @@ pub struct InternedStrings {
     pub nonterminals: StringInterner<StringBackend<SymbolU32>>,
     pub terminals: StringInterner<StringBackend<SymbolU32>>,
     pub regex_strings: StringInterner<StringBackend<SymbolU32>>,
+    pub sub_strings: StringInterner<StringBackend<SymbolU32>>,
 }
 
 /// Get and parse EBNF grammar source into [Grammar], returns [Err] when given grammar is invalid.
@@ -90,6 +91,7 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
     let mut nonterminals = StringInterner::<StringBackend<SymbolU32>>::new();
     let mut terminals = StringInterner::<StringBackend<SymbolU32>>::new();
     let mut regex_strings = StringInterner::<StringBackend<SymbolU32>>::new();
+    let mut sub_strings = StringInterner::<StringBackend<SymbolU32>>::new();
     let mut new_expressions = vec![];
     for expression in expressions {
         let lhs = nonterminals.get_or_intern(expression.lhs);
@@ -110,6 +112,10 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     let regex_string = std::mem::take(regex_string);
                     *parent =
                         NodeWithID::EarlyEndRegexString(regex_strings.get_or_intern(&regex_string));
+                }
+                Node::Substrings(substrings) => {
+                    let substrings = std::mem::take(substrings);
+                    *parent = NodeWithID::Substrings(sub_strings.get_or_intern(&substrings));
                 }
                 Node::Nonterminal(nonterminal) => {
                     let nonterminal = std::mem::take(nonterminal);
@@ -175,6 +181,7 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
             nonterminals,
             terminals,
             regex_strings,
+            sub_strings,
         },
         new_expressions
             .into_iter()

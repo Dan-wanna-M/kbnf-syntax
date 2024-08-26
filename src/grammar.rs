@@ -55,6 +55,7 @@ impl Grammar {
                         NodeWithID::Terminal(_) => {}
                         NodeWithID::RegexString(_) => {}
                         NodeWithID::EarlyEndRegexString(_) => {}
+                        NodeWithID::Substrings(_) => {}
                         NodeWithID::Nonterminal(nonterminal) => {
                             if !defined_nonterminals.contains(nonterminal) {
                                 return Err(Box::new(SemanticError::UndefinedNonterminal(
@@ -535,6 +536,29 @@ __schema_json_1_next ::=
             .simplify_grammar(
                 CompressionConfig {
                     min_terminals: 3,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                &kbnf_regex_automata::util::start::Config::new()
+                    .anchored(kbnf_regex_automata::Anchored::Yes),
+            );
+        assert_snapshot!(format!("{:?}", result))
+    }
+
+    #[test]
+    fn sub_strings() {
+        let source = r#"
+            S ::= #substrs"abc";
+        "#;
+        let result = get_grammar(source)
+            .unwrap()
+            .validate_grammar(
+                "S",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
                     regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
                 },
                 &kbnf_regex_automata::util::start::Config::new()

@@ -99,6 +99,32 @@ fn parse_terminal(input: &str) -> Res<&str, Node> {
     Ok((input, Node::Terminal(string.to_string())))
 }
 
+fn parse_sub_string(input: &str) -> Res<&str, Node> {
+    let (input, string) = alt((
+        delimited(
+            tag("#substrs'"),
+            opt(escaped(
+                none_of("\\\'"),
+                '\\',
+                nom::character::complete::anychar,
+            )),
+            complete::char('\''),
+        ),
+        delimited(
+            tag("#substrs\""),
+            opt(escaped(
+                none_of("\\\""),
+                '\\',
+                nom::character::complete::anychar,
+            )),
+            complete::char('"'),
+        ),
+    ))(input)?;
+    let string = string.unwrap_or("");
+    let (_, string) = unescape(string, input)?;
+    Ok((input, Node::Substrings(string.to_string())))
+}
+
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let mut early = false;
     let result: Result<(&str, Option<&str>), Err<VerboseError<&str>>> = alt((
@@ -194,6 +220,7 @@ fn parse_node(input: &str) -> Res<&str, Node> {
             parse_terminal,
             parse_regex_string,
             parse_nonterminal,
+            parse_sub_string,
         )),
     )(input)?;
 
@@ -458,6 +485,15 @@ string ::= #'"([^\\"\u0000-\u001f]|\\["\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*"';
             filter2 ::= #"[a-z]+";
             filter3 ::= #e"[a-z]+";
             filter4 ::= #e'[a-z]+';
+            "#;
+        let result = parse_expressions(source);
+        assert_yaml_snapshot!(result.unwrap())
+    }
+    #[test]
+    fn sub_strings() {
+        let source = r#"
+            filter ::= #substrs'abc';
+            filter2 ::= #substrs"abc";
             "#;
         let result = parse_expressions(source);
         assert_yaml_snapshot!(result.unwrap())

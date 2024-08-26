@@ -99,6 +99,7 @@ impl ValidatedGrammar {
                 NodeWithID::Terminal(_) => {}
                 NodeWithID::RegexString(_) => {}
                 NodeWithID::EarlyEndRegexString(_) => {}
+                NodeWithID::Substrings(_) => {}
                 NodeWithID::Nonterminal(nonterminal) => {
                     if used_nonterminals.contains(nonterminal) {
                         continue;
@@ -277,6 +278,9 @@ impl ValidatedGrammar {
                         NodeWithID::EarlyEndRegexString(value) => {
                             *new_parent = NoNestingNode::EarlyEndRegexString(*value);
                         }
+                        NodeWithID::Substrings(value) => {
+                            *new_parent = NoNestingNode::Substrings(*value);
+                        }
                         NodeWithID::Unknown => {
                             unreachable!("Unknown node. This should not happen.")
                         }
@@ -310,6 +314,11 @@ impl ValidatedGrammar {
                         rhs.alternations[index]
                             .concatenations
                             .push(OperatorFlattenedNode::RegexString(value));
+                    }
+                    NoNestingNode::Substrings(value) => {
+                        rhs.alternations[index]
+                            .concatenations
+                            .push(OperatorFlattenedNode::Substrings(value));
                     }
                     NoNestingNode::Nonterminal(value) => {
                         rhs.alternations[index]
@@ -962,6 +971,7 @@ impl ValidatedGrammar {
         let mut interned_nonterminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_terminals: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
+        let mut interned_sub_strings: StringInterner<StringBackend> = StringInterner::default();
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
         let mut new_rules: Vec<_> = Vec::with_capacity(rules.len());
         let mut start_symbol_updated = false;
@@ -983,6 +993,10 @@ impl ValidatedGrammar {
                             *nonterminal = interned_nonterminals.get_or_intern(
                                 interned.nonterminals.resolve(*nonterminal).unwrap(),
                             );
+                        }
+                        OperatorFlattenedNode::Substrings(substrings) => {
+                            *substrings = interned_sub_strings
+                                .get_or_intern(interned.sub_strings.resolve(*substrings).unwrap());
                         }
                         OperatorFlattenedNode::Terminal(terminal) => {
                             *terminal = interned_terminals
@@ -1007,6 +1021,7 @@ impl ValidatedGrammar {
                 nonterminals: interned_nonterminals,
                 terminals: interned_terminals,
                 regex_strings: interned_regexes,
+                sub_strings: interned_sub_strings,
             },
             new_id_to_regex,
             new_rules,

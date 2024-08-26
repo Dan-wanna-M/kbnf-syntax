@@ -48,6 +48,10 @@ impl Display for SimplifiedGrammar {
                             let value = self.interned_strings.terminals.resolve(*value).unwrap();
                             buffer.push_str(&format!("'{}'", value));
                         }
+                        OperatorFlattenedNode::Substrings(value) => {
+                            let value = self.interned_strings.sub_strings.resolve(*value).unwrap();
+                            buffer.push_str(&format!("#substrs\"{}\"", value));
+                        }
                         OperatorFlattenedNode::RegexString(value) => {
                             let value =
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
@@ -102,6 +106,15 @@ impl std::fmt::Debug for SimplifiedGrammar {
                         OperatorFlattenedNode::Terminal(value) => {
                             let terminal = self.interned_strings.terminals.resolve(*value).unwrap();
                             buffer.push_str(&format!("'{}'(ID: {})", terminal, value.to_usize()));
+                        }
+                        OperatorFlattenedNode::Substrings(value) => {
+                            let substrings =
+                                self.interned_strings.sub_strings.resolve(*value).unwrap();
+                            buffer.push_str(&format!(
+                                "#substrs\"{}\"(ID: {})",
+                                substrings,
+                                value.to_usize()
+                            ));
                         }
                         OperatorFlattenedNode::RegexString(value) => {
                             let regex =

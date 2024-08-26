@@ -1,0 +1,11 @@
+---
+source: src/parser.rs
+expression: result.unwrap()
+---
+- "\n            filter ::= #substrs'abc';\n            filter2 ::= #substrs\"abc\";\n            "
+- - lhs: filter
+    rhs:
+      Substrings: abc
+  - lhs: filter2
+    rhs:
+      Substrings: abc

@@ -15,6 +15,7 @@ pub enum Node {
     Symbol(Box<Node>, SymbolKind, Box<Node>),
     Group(Box<Node>),
     EarlyEndRegexString(String),
+    Substrings(String),
 }
 
 impl Drop for Node {
@@ -41,7 +42,8 @@ impl Drop for Node {
                 let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
                 stack.push(node);
             }
-            Node::EarlyEndRegexString(_) => {}
+            Node::EarlyEndRegexString(_) => {},
+            Node::Substrings(_) => {},
         };
         while let Some(mut node) = stack.pop() {
             match &mut node {
@@ -80,6 +82,7 @@ pub enum NodeWithID {
     Symbol(Box<NodeWithID>, SymbolKind, Box<NodeWithID>),
     Group(Box<NodeWithID>),
     EarlyEndRegexString(SymbolU32),
+    Substrings(SymbolU32),
     Unknown,
 }
 
@@ -108,6 +111,7 @@ impl Drop for NodeWithID {
                 stack.push(node);
             }
             NodeWithID::EarlyEndRegexString(_) => {}
+            NodeWithID::Substrings(_) => {}
             NodeWithID::Unknown => {}
         };
         while let Some(mut node) = stack.pop() {
@@ -147,6 +151,7 @@ pub(crate) enum NoNestingNode {
     Concatenations(Vec<NoNestingNode>),
     Alternations(Vec<NoNestingNode>),
     EarlyEndRegexString(SymbolU32),
+    Substrings(SymbolU32),
 }
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord)]
@@ -155,6 +160,7 @@ pub enum OperatorFlattenedNode {
     RegexString(SymbolU32),
     Nonterminal(SymbolU32),
     EarlyEndRegexString(SymbolU32),
+    Substrings(SymbolU32),
 }
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Rhs {
