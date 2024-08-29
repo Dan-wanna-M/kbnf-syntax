@@ -42,8 +42,8 @@ impl Drop for Node {
                 let node = mem::replace(node.as_mut(), Node::Terminal(String::new()));
                 stack.push(node);
             }
-            Node::EarlyEndRegexString(_) => {},
-            Node::Substrings(_) => {},
+            Node::EarlyEndRegexString(_) => {}
+            Node::Substrings(_) => {}
         };
         while let Some(mut node) = stack.pop() {
             match &mut node {

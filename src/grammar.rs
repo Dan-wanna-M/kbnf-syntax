@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use alloc::vec::Vec;
 
+use general_sam::GeneralSam;
 use rustc_hash::{FxHashMap, FxHashSet};
 use string_interner::symbol::SymbolU32;
 
@@ -10,6 +11,7 @@ use crate::{
     node::NodeWithID,
     regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     semantic_error::SemanticError,
+    suffix_automaton::SuffixAutomaton,
     utils::compile_one_regex_string,
     validated_grammar::ValidatedGrammar,
     InternedStrings,
@@ -34,11 +36,13 @@ impl Grammar {
             .unwrap();
         self.check_undefined_nonterminal(start_symbol)?;
         let regexes = self.compile_regex_string(regex_config)?;
+        let suffix_automata = self.compile_suffix_automaton();
         Ok(ValidatedGrammar {
             expressions: self.expressions,
             start_symbol: start,
             interned_strings: self.interned_strings,
             id_to_regex: regexes,
+            id_to_suffix_automaton: suffix_automata,
         })
     }
 
@@ -117,6 +121,15 @@ impl Grammar {
             regexes.insert(id, regex);
         }
         Ok(regexes)
+    }
+
+    fn compile_suffix_automaton(&self) -> FxHashMap<SymbolU32, SuffixAutomaton> {
+        let mut suffix_automata = FxHashMap::default();
+        for (id, full_string) in &self.interned_strings.sub_strings {
+            let suffix_automaton = GeneralSam::from_bytes(full_string);
+            suffix_automata.insert(id, suffix_automaton);
+        }
+        suffix_automata
     }
 }
 

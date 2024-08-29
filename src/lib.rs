@@ -54,6 +54,7 @@ mod parser;
 pub mod regex;
 pub mod semantic_error;
 pub mod simplified_grammar;
+pub mod suffix_automaton;
 pub mod utils;
 pub mod validated_grammar;
 

@@ -10,6 +10,7 @@ use crate::{
     node::{Alternation, NoNestingNode, NodeWithID, OperatorFlattenedNode, Rhs},
     regex::{FiniteStateAutomaton, FiniteStateAutomatonConfig},
     simplified_grammar::SimplifiedGrammar,
+    suffix_automaton::SuffixAutomaton,
     utils::from_terminals_to_regex_string,
     InternedStrings, RegexExtKind, SymbolKind,
 };
@@ -20,6 +21,7 @@ pub struct ValidatedGrammar {
     pub interned_strings: InternedStrings,
     pub start_symbol: SymbolU32,
     pub id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
+    pub id_to_suffix_automaton: FxHashMap<SymbolU32, SuffixAutomaton>,
 }
 
 impl ValidatedGrammar {
