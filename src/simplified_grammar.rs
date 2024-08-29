@@ -4,9 +4,7 @@ use serde::Serialize;
 use string_interner::{symbol::SymbolU32, Symbol};
 
 use crate::{
-    node::{OperatorFlattenedNode, Rhs},
-    regex::FiniteStateAutomaton,
-    InternedStrings,
+    node::{OperatorFlattenedNode, Rhs}, regex::FiniteStateAutomaton, suffix_automaton::SuffixAutomaton, InternedStrings
 };
 
 #[derive(Clone)]
@@ -15,6 +13,7 @@ pub struct SimplifiedGrammar {
     pub start_symbol: SymbolU32,
     pub interned_strings: InternedStrings,
     pub id_to_regex: Vec<FiniteStateAutomaton>,
+    pub id_to_suffix_automaton: Vec<SuffixAutomaton>,
 }
 
 impl SimplifiedGrammar {

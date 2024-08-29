@@ -70,17 +70,20 @@ impl ValidatedGrammar {
             &mut self.id_to_regex,
         );
 
-        let (interned_strings, id_to_regexes, expressions, start_symbol) = Self::compact_interned(
-            self.start_symbol,
-            expressions,
-            self.interned_strings,
-            self.id_to_regex,
-        );
+        let (interned_strings, id_to_regexes, id_to_suffix_automaton, expressions, start_symbol) =
+            Self::compact_interned(
+                self.start_symbol,
+                expressions,
+                self.interned_strings,
+                self.id_to_regex,
+                self.id_to_suffix_automaton,
+            );
         SimplifiedGrammar {
             expressions,
             start_symbol,
             interned_strings,
             id_to_regex: id_to_regexes,
+            id_to_suffix_automaton,
         }
     }
 
@@ -964,9 +967,11 @@ impl ValidatedGrammar {
         rules: FxHashMap<SymbolU32, Rhs>,
         interned: InternedStrings,
         id_to_regex: FxHashMap<SymbolU32, FiniteStateAutomaton>,
+        id_to_suffix_automaton: FxHashMap<SymbolU32, SuffixAutomaton>,
     ) -> (
         InternedStrings,
         Vec<FiniteStateAutomaton>,
+        Vec<SuffixAutomaton>,
         Vec<Rhs>,
         SymbolU32,
     ) {
@@ -975,6 +980,7 @@ impl ValidatedGrammar {
         let mut interned_regexes: StringInterner<StringBackend> = StringInterner::default();
         let mut interned_sub_strings: StringInterner<StringBackend> = StringInterner::default();
         let mut new_id_to_regex = Vec::with_capacity(id_to_regex.len());
+        let mut new_id_to_suffix_automaton = Vec::with_capacity(id_to_suffix_automaton.len());
         let mut new_rules: Vec<_> = Vec::with_capacity(rules.len());
         let mut start_symbol_updated = false;
         for (lhs, rhs) in rules.into_iter() {
@@ -996,10 +1002,6 @@ impl ValidatedGrammar {
                                 interned.nonterminals.resolve(*nonterminal).unwrap(),
                             );
                         }
-                        OperatorFlattenedNode::Substrings(substrings) => {
-                            *substrings = interned_sub_strings
-                                .get_or_intern(interned.sub_strings.resolve(*substrings).unwrap());
-                        }
                         OperatorFlattenedNode::Terminal(terminal) => {
                             *terminal = interned_terminals
                                 .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
@@ -1014,6 +1016,15 @@ impl ValidatedGrammar {
                             *regex = new_id;
                             // Should not fail since StringBackend is contiguous.
                         }
+                        OperatorFlattenedNode::Substrings(substrings) => {
+                            let new_id = interned_sub_strings
+                                .get_or_intern(interned.sub_strings.resolve(*substrings).unwrap());
+                            if new_id.to_usize() == new_id_to_suffix_automaton.len() {
+                                new_id_to_suffix_automaton
+                                    .push(id_to_suffix_automaton.get(substrings).unwrap().clone());
+                            }
+                            *substrings = new_id;
+                        }
                     }
                 }
             }
@@ -1026,6 +1037,7 @@ impl ValidatedGrammar {
                 sub_strings: interned_sub_strings,
             },
             new_id_to_regex,
+            new_id_to_suffix_automaton,
             new_rules,
             start_symbol,
         )
