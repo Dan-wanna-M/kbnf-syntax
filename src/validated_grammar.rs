@@ -53,6 +53,7 @@ impl ValidatedGrammar {
             expressions,
             &self.interned_strings,
             &self.id_to_regex,
+            &self.id_to_suffix_automaton,
             regex_start_config,
         );
         let expressions = Self::remove_unit_production(
@@ -753,12 +754,14 @@ impl ValidatedGrammar {
         rules: FxHashMap<SymbolU32, Rhs>,
         interned_strings: &InternedStrings,
         id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
+        id_to_suffix_automaton: &FxHashMap<SymbolU32, SuffixAutomaton>,
         regex_start_config: &kbnf_regex_automata::util::start::Config,
     ) -> FxHashMap<SymbolU32, Rhs> {
         fn find_nullable_nonterminals(
             rules: &FxHashMap<SymbolU32, Rhs>,
             interned_strings: &InternedStrings,
             id_to_regex: &FxHashMap<SymbolU32, FiniteStateAutomaton>,
+            id_to_suffix_automaton: &FxHashMap<SymbolU32, SuffixAutomaton>,
             regex_start_config: &kbnf_regex_automata::util::start::Config,
         ) -> (
             FxHashSet<OperatorFlattenedNode>,
@@ -818,6 +821,18 @@ impl ValidatedGrammar {
                                             nullable &= false;
                                         }
                                     }
+                                    OperatorFlattenedNode::Substrings(substrings) => {
+                                        let automaton = id_to_suffix_automaton.get(substrings).unwrap();
+                                        if automaton.num_of_nodes() == 2 { // one root and one nil
+                                            null &= true;
+                                            nullable &= true;
+                                            null_symbols.insert(c.clone());
+                                            nullable_symbols.insert(c.clone());
+                                        } else {
+                                            nullable &= true;
+                                            nullable_symbols.insert(c.clone());
+                                        }
+                                    }
                                     _ => {
                                         null &= false;
                                         nullable &= false;
@@ -843,8 +858,13 @@ impl ValidatedGrammar {
             }
             (nullable_symbols, null_symbols)
         }
-        let (nullable_nodes, null_nodes) =
-            find_nullable_nonterminals(&rules, interned_strings, id_to_regex, regex_start_config);
+        let (nullable_nodes, null_nodes) = find_nullable_nonterminals(
+            &rules,
+            interned_strings,
+            id_to_regex,
+            id_to_suffix_automaton,
+            regex_start_config,
+        );
         let mut new_rules = FxHashMap::default();
         for (lhs, Rhs { alternations }) in rules {
             let mut new_alterations = FxHashSet::default();

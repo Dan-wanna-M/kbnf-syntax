@@ -560,7 +560,8 @@ __schema_json_1_next ::=
     #[test]
     fn sub_strings() {
         let source = r#"
-            S ::= #substrs"abc";
+            S ::= B #substrs"abc" "d" | #substrs"A" "e";
+            B ::= #substrs"";
         "#;
         let result = get_grammar(source)
             .unwrap()
