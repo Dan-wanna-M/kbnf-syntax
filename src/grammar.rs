@@ -26,15 +26,15 @@ pub struct Grammar {
 impl Grammar {
     pub fn validate_grammar(
         self,
-        start_symbol: &str,
+        start_nonterminal: &str,
         regex_config: FiniteStateAutomatonConfig,
     ) -> Result<ValidatedGrammar, Box<SemanticError>> {
         let start = self
             .interned_strings
             .nonterminals
-            .get(start_symbol)
-            .unwrap();
-        self.check_undefined_nonterminal(start_symbol)?;
+            .get(start_nonterminal)
+            .ok_or(SemanticError::UndefinedNonterminal(start_nonterminal.to_string()))?;
+        self.check_undefined_nonterminal(start_nonterminal)?;
         let regexes = self.compile_regex_string(regex_config)?;
         let suffix_automata = self.compile_suffix_automaton();
         Ok(ValidatedGrammar {
@@ -255,7 +255,7 @@ mod test {
     #[test]
     fn simplify_grammar3() {
         let source = r#"
-            S ::= 'a'? 'a'? 'a'? 'a'? 'a'?;
+            S ::= 'a'? 'b'? 'c'? 'd'? 'e'?;
             A ::= 'cd';
         "#;
         let result = get_grammar(source)

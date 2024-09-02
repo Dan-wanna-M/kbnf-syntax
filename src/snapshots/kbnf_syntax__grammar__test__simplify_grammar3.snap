@@ -3,4 +3,4 @@ source: src/grammar.rs
 expression: "format!(\"{:?}\", result)"
 ---
 start_symbol: S(ID: 0)
-S ::= #"aa|a|aaaa|aaa|aaaaa"(ID: 0,type: DFA);
+S ::= #"bc|e|de|ac|b|bcde|abde|cde|ce|acd|abce|be|abd|abcde|ae|d|bde|ab|a|cd|bce|abcd|bd|abc|ad|ade|c|ace|acde|bcd|abe"(ID: 0,type: DFA);
