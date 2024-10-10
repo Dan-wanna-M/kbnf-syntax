@@ -1,6 +1,6 @@
 [package]
 name = "kbnf-syntax"
-version = "0.4.3"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 description = "An internal syntax crate for kbnf crate"
@@ -13,13 +13,13 @@ keywords = ["ebnf", "bnf"]
 nom = "7"
 parse-hyperlinks = "0.27.2"
 serde = { version = "1.0", features = ["derive"] }
-regex-syntax = "0.8.4"
+regex-syntax = "0.8.5"
 string-interner = "0.17.0"
-thiserror = "1.0.63"
+thiserror = "1.0.64"
 rustc-hash = "2.0.0"
 kbnf-regex-automata="0.4.10"
 unescaper = "0.1.5"
 regex-lite = "0.1.6"
 general-sam = "1.0.0"
 [dev-dependencies]
-insta = { version = "1.39.0", features = ["yaml"] }
+insta = { version = "1.40.0", features = ["yaml"] }

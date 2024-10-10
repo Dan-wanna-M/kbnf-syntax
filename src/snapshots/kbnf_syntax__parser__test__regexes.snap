@@ -5,13 +5,13 @@ expression: result.unwrap()
 - "\n            filter ::= #'[a-z]+';\n            filter2 ::= #\"[a-z]+\";\n            filter3 ::= #e\"[a-z]+\";\n            filter4 ::= #e'[a-z]+';\n            "
 - - lhs: filter
     rhs:
-      RegexString: "\\A[a-z]+\\z"
+      RegexString: "\\A(?:[a-z]+)\\z"
   - lhs: filter2
     rhs:
-      RegexString: "\\A[a-z]+\\z"
+      RegexString: "\\A(?:[a-z]+)\\z"
   - lhs: filter3
     rhs:
-      EarlyEndRegexString: "\\A[a-z]+\\z"
+      EarlyEndRegexString: "\\A(?:[a-z]+)\\z"
   - lhs: filter4
     rhs:
-      EarlyEndRegexString: "\\A[a-z]+\\z"
+      EarlyEndRegexString: "\\A(?:[a-z]+)\\z"

@@ -11,10 +11,10 @@ expression: result.unwrap()
       Terminal: "\t\r\n\"L"
   - lhs: regex_double_quote
     rhs:
-      RegexString: "\\A\t\r\n\"L\\z"
+      RegexString: "\\A(?:\t\r\n\"L)\\z"
   - lhs: regex_single_quote
     rhs:
-      RegexString: "\\A\t\r\n'L\\z"
+      RegexString: "\\A(?:\t\r\n'L)\\z"
   - lhs: string
     rhs:
-      RegexString: "\\A\"([^\\\"\u0000-\u001f]|\\[\"\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*\"\\z"
+      RegexString: "\\A(?:\"([^\\\"\u0000-\u001f]|\\[\"\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*\")\\z"

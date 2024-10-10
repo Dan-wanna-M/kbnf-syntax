@@ -173,9 +173,9 @@ fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let string = string.unwrap_or("");
     let (_, string) = unescape(string, input)?;
     let node = if early {
-        Node::EarlyEndRegexString(format!(r"\A{string}\z"))
+        Node::EarlyEndRegexString(format!(r"\A(?:{string})\z"))
     } else {
-        Node::RegexString(format!(r"\A{string}\z"))
+        Node::RegexString(format!(r"\A(?:{string})\z"))
     };
     regex_syntax::ast::parse::Parser::new() // initialize 200 bytes of memory on stack for regex may not be very efficient. Maybe we need to modify it later.
         .parse(&string)
