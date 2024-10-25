@@ -70,7 +70,6 @@ impl ValidatedGrammar {
             config,
             &mut self.id_to_regex,
         );
-
         let (interned_strings, id_to_regexes, id_to_suffix_automaton, expressions, start_symbol) =
             Self::compact_interned(
                 self.start_symbol,
@@ -106,6 +105,7 @@ impl ValidatedGrammar {
                 NodeWithID::RegexString(_) => {}
                 NodeWithID::EarlyEndRegexString(_) => {}
                 NodeWithID::Substrings(_) => {}
+                NodeWithID::RegexComplement(_) => {}
                 NodeWithID::Nonterminal(nonterminal) => {
                     if used_nonterminals.contains(nonterminal) {
                         continue;
@@ -206,6 +206,9 @@ impl ValidatedGrammar {
                         }
                         NodeWithID::Nonterminal(value) => {
                             *new_parent = NoNestingNode::Nonterminal(*value);
+                        }
+                        NodeWithID::RegexComplement(value) => {
+                            *new_parent = NoNestingNode::RegexComplement(*value);
                         }
                         NodeWithID::Multiple(nodes) => {
                             *new_parent = NoNestingNode::Concatenations(get_slice(nodes));
@@ -315,6 +318,11 @@ impl ValidatedGrammar {
                         rhs.alternations[index]
                             .concatenations
                             .push(OperatorFlattenedNode::Terminal(value));
+                    }
+                    NoNestingNode::RegexComplement(value) => {
+                        rhs.alternations[index]
+                            .concatenations
+                            .push(OperatorFlattenedNode::RegexComplement(value));
                     }
                     NoNestingNode::RegexString(value) => {
                         rhs.alternations[index]
@@ -1027,7 +1035,8 @@ impl ValidatedGrammar {
                                 .get_or_intern(interned.terminals.resolve(*terminal).unwrap());
                         }
                         OperatorFlattenedNode::RegexString(regex)
-                        | OperatorFlattenedNode::EarlyEndRegexString(regex) => {
+                        | OperatorFlattenedNode::EarlyEndRegexString(regex)
+                        | OperatorFlattenedNode::RegexComplement(regex) => {
                             let new_id = interned_regexes
                                 .get_or_intern(interned.regex_strings.resolve(*regex).unwrap());
                             if new_id.to_usize() == new_id_to_regex.len() {

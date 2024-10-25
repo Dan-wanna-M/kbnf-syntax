@@ -114,6 +114,12 @@ fn intern_strings(expressions: Vec<Expression>) -> (InternedStrings, Vec<Express
                     *parent =
                         NodeWithID::EarlyEndRegexString(regex_strings.get_or_intern(&regex_string));
                 }
+                Node::RegexComplement(regex_complement) => {
+                    let regex_complement = std::mem::take(regex_complement);
+                    *parent = NodeWithID::RegexComplement(
+                        regex_strings.get_or_intern(&regex_complement),
+                    );
+                }
                 Node::Substrings(substrings) => {
                     let substrings = std::mem::take(substrings);
                     *parent = NodeWithID::Substrings(sub_strings.get_or_intern(&substrings));

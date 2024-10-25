@@ -1,0 +1,6 @@
+---
+source: src/grammar.rs
+expression: "format!(\"{:?}\", result)"
+---
+start_symbol: filter(ID: 0)
+filter ::= #ex"[a-z]+"(ID: 0,type: DFA);

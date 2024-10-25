@@ -60,6 +60,7 @@ impl Grammar {
                         NodeWithID::RegexString(_) => {}
                         NodeWithID::EarlyEndRegexString(_) => {}
                         NodeWithID::Substrings(_) => {}
+                        NodeWithID::RegexComplement(_) => {}
                         NodeWithID::Nonterminal(nonterminal) => {
                             if !defined_nonterminals.contains(nonterminal) {
                                 return Err(Box::new(SemanticError::UndefinedNonterminal(
@@ -577,6 +578,26 @@ __schema_json_1_next ::=
                 },
                 &kbnf_regex_automata::util::start::Config::new()
                     .anchored(kbnf_regex_automata::Anchored::Yes),
+            );
+        assert_snapshot!(format!("{:?}", result))
+    }
+
+    #[test]
+    fn regex_complement() {
+        let source = r#"
+            filter ::= #ex"[a-z]+";
+        "#;
+        let result = get_grammar(source).unwrap().validate_grammar(
+            "filter",
+                crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+            )
+            .unwrap()
+            .simplify_grammar(
+                CompressionConfig {
+                    min_terminals: 2,
+                    regex_config: crate::regex::FiniteStateAutomatonConfig::Dfa(Config::default()),
+                },
+                &kbnf_regex_automata::util::start::Config::new(),
             );
         assert_snapshot!(format!("{:?}", result))
     }

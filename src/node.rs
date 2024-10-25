@@ -16,13 +16,14 @@ pub enum Node {
     Group(Box<Node>),
     EarlyEndRegexString(String),
     Substrings(String),
+    RegexComplement(String),
 }
 
 impl Drop for Node {
     fn drop(&mut self) {
         let mut stack = vec![];
         match self {
-            Node::Terminal(_) | Node::RegexString(_) | Node::Nonterminal(_) => {}
+            Node::Terminal(_) | Node::RegexString(_) | Node::Nonterminal(_) | Node::RegexComplement(_) => {}
             Node::Multiple(nodes) => {
                 while let Some(node) = nodes.pop() {
                     stack.push(node);
@@ -83,6 +84,7 @@ pub enum NodeWithID {
     Group(Box<NodeWithID>),
     EarlyEndRegexString(SymbolU32),
     Substrings(SymbolU32),
+    RegexComplement(SymbolU32),
     Unknown,
 }
 
@@ -90,7 +92,7 @@ impl Drop for NodeWithID {
     fn drop(&mut self) {
         let mut stack = vec![];
         match self {
-            NodeWithID::Terminal(_) | NodeWithID::RegexString(_) | NodeWithID::Nonterminal(_) => {}
+            NodeWithID::Terminal(_) | NodeWithID::RegexString(_) | NodeWithID::Nonterminal(_) | NodeWithID::RegexComplement(_) => {}
             NodeWithID::Multiple(nodes) => {
                 while let Some(node) = nodes.pop() {
                     stack.push(node);
@@ -148,6 +150,7 @@ pub(crate) enum NoNestingNode {
     Terminal(SymbolU32),
     RegexString(SymbolU32),
     Nonterminal(SymbolU32),
+    RegexComplement(SymbolU32),
     Concatenations(Vec<NoNestingNode>),
     Alternations(Vec<NoNestingNode>),
     EarlyEndRegexString(SymbolU32),
@@ -161,6 +164,7 @@ pub enum OperatorFlattenedNode {
     Nonterminal(SymbolU32),
     EarlyEndRegexString(SymbolU32),
     Substrings(SymbolU32),
+    RegexComplement(SymbolU32),
 }
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Rhs {

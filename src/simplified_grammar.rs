@@ -61,6 +61,11 @@ impl Display for SimplifiedGrammar {
                                 self.interned_strings.regex_strings.resolve(*value).unwrap();
                             buffer.push_str(&format!("#e\"{}\"", value));
                         }
+                        OperatorFlattenedNode::RegexComplement(value) => {
+                            let value =
+                                self.interned_strings.regex_strings.resolve(*value).unwrap();
+                            buffer.push_str(&format!("#ex\"{}\"", value));
+                        }
                         OperatorFlattenedNode::Nonterminal(value) => {
                             let value = self.interned_strings.nonterminals.resolve(*value).unwrap();
                             buffer.push_str(value);
@@ -136,6 +141,19 @@ impl std::fmt::Debug for SimplifiedGrammar {
                             };
                             buffer.push_str(&format!(
                                 "#e\"{}\"(ID: {},type: {})",
+                                regex,
+                                value.to_usize(),
+                                regex_type
+                            ));
+                        }
+                        OperatorFlattenedNode::RegexComplement(value) => {
+                            let regex =
+                                self.interned_strings.regex_strings.resolve(*value).unwrap();
+                            let regex_type = match self.id_to_regex[value.to_usize()] {
+                                FiniteStateAutomaton::Dfa(_) => "DFA",
+                            };
+                            buffer.push_str(&format!(
+                                "#ex\"{}\"(ID: {},type: {})",
                                 regex,
                                 value.to_usize(),
                                 regex_type

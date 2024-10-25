@@ -124,6 +124,42 @@ fn parse_sub_string(input: &str) -> Res<&str, Node> {
     let (_, string) = unescape(string, input)?;
     Ok((input, Node::Substrings(string.to_string())))
 }
+fn parse_regex_complement(input: &str) -> Res<&str, Node> {
+    let (input, string) = alt((
+        delimited(
+            tag("#ex'"),
+            opt(escaped(
+                none_of("\\\'"),
+                '\\',
+                nom::character::complete::anychar,
+            )),
+            complete::char('\''),
+        ),
+        delimited(
+            tag("#ex\""),
+            opt(escaped(
+                none_of("\\\""),
+                '\\',
+                nom::character::complete::anychar,
+            )),
+            complete::char('"'),
+        ),
+    ))(input)?;
+    let string = string.unwrap_or("");
+    let (_, string) = unescape(string, input)?;
+    let node = Node::RegexComplement(string.to_string());
+    regex_syntax::ast::parse::Parser::new()
+        .parse(&string)
+        .map_err(|_: regex_syntax::ast::Error| {
+            nom::Err::Error(VerboseError {
+                errors: vec![(
+                    input,
+                    nom::error::VerboseErrorKind::Context("Invalid regex string"),
+                )],
+            })
+        })
+        .map(|_| (input, node))
+}
 
 fn parse_regex_string(input: &str) -> Res<&str, Node> {
     let mut early = false;
@@ -219,6 +255,7 @@ fn parse_node(input: &str) -> Res<&str, Node> {
             parse_repeat,
             parse_terminal,
             parse_regex_string,
+            parse_regex_complement,
             parse_nonterminal,
             parse_sub_string,
         )),
@@ -552,5 +589,14 @@ string ::= #'"([^\\"\u0000-\u001f]|\\["\\bfnrt/]|\\\\u[0-9A-Fa-f]{4})*"';
                 _ => unreachable!(),
             };
         }
+    }
+
+    #[test]
+    fn regex_complement() {
+        let source = r#"
+            filter ::= #ex"[a-z]+";
+        "#;
+        let result = parse_expressions(source);
+        assert_yaml_snapshot!(result.unwrap())
     }
 }

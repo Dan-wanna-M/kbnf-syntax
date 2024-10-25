@@ -1,0 +1,8 @@
+---
+source: src/parser.rs
+expression: result.unwrap()
+---
+- "\n            filter ::= #ex\"[a-z]+\";\n        "
+- - lhs: filter
+    rhs:
+      RegexComplement: "[a-z]+"
