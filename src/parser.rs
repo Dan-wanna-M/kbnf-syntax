@@ -147,7 +147,7 @@ fn parse_regex_complement(input: &str) -> Res<&str, Node> {
     ))(input)?;
     let string = string.unwrap_or("");
     let (_, string) = unescape(string, input)?;
-    let node = Node::RegexComplement(string.to_string());
+    let node = Node::RegexComplement(format!(r"(?:{string})\z"));
     regex_syntax::ast::parse::Parser::new()
         .parse(&string)
         .map_err(|_: regex_syntax::ast::Error| {

@@ -5,4 +5,4 @@ expression: result.unwrap()
 - "\n            filter ::= #ex\"[a-z]+\";\n        "
 - - lhs: filter
     rhs:
-      RegexComplement: "[a-z]+"
+      RegexComplement: "(?:[a-z]+)\\z"
