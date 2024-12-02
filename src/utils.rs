@@ -26,7 +26,7 @@ pub fn from_terminals_to_regex_string(
     terminals: &[Alternation],
     interned_strings: &InternedStrings,
 ) -> String {
-    terminals
+    let regex = terminals
         .iter()
         .map(|x| x.concatenations.first().unwrap())
         .map(|x| match x {
@@ -35,5 +35,6 @@ pub fn from_terminals_to_regex_string(
         })
         .map(|x| regex_lite::escape(interned_strings.terminals.resolve(*x).unwrap()))
         .collect::<Vec<_>>()
-        .join("|")
+        .join("|");
+    format!(r"\A(?:{})\z", regex)
 }

@@ -3,4 +3,4 @@ source: src/grammar.rs
 expression: "format!(\"{:?}\", result)"
 ---
 start_symbol: S(ID: 0)
-S ::= #"b|d|a|c"(ID: 0,type: DFA);
+S ::= #"\A(?:b|d|a|c)\z"(ID: 0,type: DFA);

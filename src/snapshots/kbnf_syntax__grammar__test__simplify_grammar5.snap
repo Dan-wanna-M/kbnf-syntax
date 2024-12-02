@@ -4,4 +4,4 @@ expression: "format!(\"{:?}\", result)"
 ---
 start_symbol: S(ID: 0)
 S ::= 'jk'(ID: 0) A(ID: 1) | 'ab'(ID: 1) S(ID: 0) | 'ab'(ID: 1);
-A ::= A(ID: 1) 'c'(ID: 2) | #"Ac|cd"(ID: 0,type: DFA);
+A ::= A(ID: 1) 'c'(ID: 2) | #"\A(?:Ac|cd)\z"(ID: 0,type: DFA);
